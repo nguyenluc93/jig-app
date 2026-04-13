@@ -2,3 +2,4 @@ fastapi
 uvicorn
 qrcode[pil]
 python-multipart
+psycopg2-binary
