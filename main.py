@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS COMMENTS (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS RESERVATIONS (
+    id TEXT,
+    jig_id TEXT,
+    user TEXT,
+    time TEXT
+)
+""")
+
 conn.commit()
 
 # INIT DATA
@@ -120,19 +129,24 @@ def home():
 @app.get("/tab/dashboard", response_class=HTMLResponse)
 def dashboard():
     cursor.execute("SELECT * FROM JIGS")
-    data = cursor.fetchall()
+    jigs = cursor.fetchall()
 
-    html = "<h2>Danh sách JIG</h2><table><tr><th>JIG</th><th>Status</th><th>Action</th></tr>"
+    html = "<h2>Danh sách JIG</h2><table><tr><th>JIG</th><th>Status</th><th>Queue</th><th>Action</th></tr>"
 
-    for jig, status, tx in data:
+    for jig, status, tx in jigs:
+
+        cursor.execute("SELECT user FROM RESERVATIONS WHERE jig_id=? ORDER BY time", (jig,))
+        queue = cursor.fetchall()
+        queue_text = " → ".join([q[0] for q in queue])
+
         if status == "AVAILABLE":
             color = "green"
             action = f"<button onclick=\"loadTab('borrow_form?jig={jig}')\">Mượn</button>"
         else:
             color = "red"
-            action = "Đang sử dụng"
+            action = f"<button onclick=\"loadTab('reserve_form?jig={jig}')\">Đặt</button>"
 
-        html += f"<tr><td>{jig}</td><td style='color:{color}'>{status}</td><td>{action}</td></tr>"
+        html += f"<tr><td>{jig}</td><td style='color:{color}'>{status}</td><td>{queue_text}</td><td>{action}</td></tr>"
 
     html += "</table>"
     return html
@@ -183,7 +197,6 @@ def get_qr(tx_id: str):
 def scan_page():
     return """
     <h2>Scan QR để trả JIG</h2>
-
     <div id="reader" style="width:300px;"></div>
 
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -201,6 +214,29 @@ def scan_page():
     scanner.render(onScanSuccess);
     </script>
     """
+
+# ===== RESERVE FORM =====
+@app.get("/tab/reserve_form", response_class=HTMLResponse)
+def reserve_form(jig: str):
+    return f"""
+    <h2>Đặt JIG {jig}</h2>
+    <form action="/reserve" method="post">
+        Tên: <input name="user"><br><br>
+        <input type="hidden" name="jig_id" value="{jig}">
+        <button type="submit">Đặt</button>
+    </form>
+    """
+
+# ===== RESERVE =====
+@app.post("/reserve", response_class=HTMLResponse)
+def reserve(jig_id: str = Form(...), user: str = Form(...)):
+    cursor.execute("""
+    INSERT INTO RESERVATIONS VALUES (?, ?, ?, ?)
+    """, (str(uuid.uuid4()), jig_id, user, datetime.now().isoformat()))
+
+    conn.commit()
+
+    return "<h3>Đã đặt JIG (FIFO)</h3>"
 
 # ===== RETURN PAGE =====
 @app.get("/return", response_class=HTMLResponse)
@@ -228,6 +264,7 @@ def return_page(tx: str):
 # ===== CONFIRM RETURN =====
 @app.post("/confirm_return", response_class=HTMLResponse)
 def confirm_return(tx: str = Form(...), returned_by: str = Form(...)):
+
     cursor.execute("SELECT jig_id FROM TRANSACTIONS WHERE id=?", (tx,))
     jig_id = cursor.fetchone()[0]
 
@@ -237,11 +274,30 @@ def confirm_return(tx: str = Form(...), returned_by: str = Form(...)):
     WHERE id=?
     """, (datetime.now().isoformat(), returned_by, tx))
 
-    cursor.execute("UPDATE JIGS SET status='AVAILABLE', current_tx=NULL WHERE id=?", (jig_id,))
+    # FIFO
+    cursor.execute("SELECT id, user FROM RESERVATIONS WHERE jig_id=? ORDER BY time LIMIT 1", (jig_id,))
+    next_user = cursor.fetchone()
 
-    conn.commit()
+    if next_user:
+        res_id, user = next_user
+        new_tx = str(uuid.uuid4())
 
-    return "<h2>Đã trả thành công</h2>"
+        cursor.execute("UPDATE JIGS SET current_tx=? WHERE id=?", (new_tx, jig_id))
+
+        cursor.execute("""
+        INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, NULL, NULL)
+        """, (new_tx, jig_id, user, datetime.now().isoformat(), ""))
+
+        cursor.execute("DELETE FROM RESERVATIONS WHERE id=?", (res_id,))
+        conn.commit()
+
+        return f"<h2>Đã chuyển JIG cho {user}</h2>"
+
+    else:
+        cursor.execute("UPDATE JIGS SET status='AVAILABLE', current_tx=NULL WHERE id=?", (jig_id,))
+        conn.commit()
+
+        return "<h2>Đã trả thành công</h2>"
 
 # ===== HISTORY =====
 @app.get("/tab/history", response_class=HTMLResponse)
