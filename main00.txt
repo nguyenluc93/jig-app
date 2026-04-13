@@ -1,62 +1,22 @@
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, FileResponse
-import sqlite3
-import uuid
-import qrcode
+import sqlite3, uuid, qrcode, os
 from datetime import datetime
-import os
 
 app = FastAPI()
-
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 conn = sqlite3.connect("jig.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# ===== INIT DB =====
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS JIGS (
-    id TEXT PRIMARY KEY,
-    status TEXT,
-    current_tx TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS TRANSACTIONS (
-    id TEXT,
-    jig_id TEXT,
-    user TEXT,
-    borrow_time TEXT,
-    expected_return TEXT,
-    return_time TEXT,
-    returned_by TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS COMMENTS (
-    id TEXT,
-    jig_id TEXT,
-    user TEXT,
-    content TEXT,
-    time TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS RESERVATIONS (
-    id TEXT,
-    jig_id TEXT,
-    user TEXT,
-    time TEXT
-)
-""")
-
+# ===== DB =====
+cursor.execute("CREATE TABLE IF NOT EXISTS JIGS (id TEXT PRIMARY KEY, status TEXT, current_tx TEXT)")
+cursor.execute("CREATE TABLE IF NOT EXISTS TRANSACTIONS (id TEXT, jig_id TEXT, user TEXT, borrow_time TEXT, expected_return TEXT, return_time TEXT, returned_by TEXT)")
+cursor.execute("CREATE TABLE IF NOT EXISTS COMMENTS (id TEXT, jig_id TEXT, user TEXT, content TEXT, time TEXT)")
+cursor.execute("CREATE TABLE IF NOT EXISTS RESERVATIONS (id TEXT, jig_id TEXT, user TEXT, time TEXT)")
 conn.commit()
 
-# INIT DATA
-for jig in ["T-1-2-1", "T-1-2-2", "T-1-2-3"]:
+for jig in ["T-1-2-1","T-1-2-2","T-1-2-3"]:
     cursor.execute("INSERT OR IGNORE INTO JIGS VALUES (?, 'AVAILABLE', NULL)", (jig,))
 conn.commit()
 
@@ -64,283 +24,122 @@ conn.commit()
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
-    <html>
-    <head>
-    <title>JIG Manager</title>
-    <style>
-    body { margin:0; font-family:Arial; display:flex; }
-    .sidebar {
-        width:220px;
-        background:#1e1e2f;
-        color:white;
-        height:100vh;
-        padding:10px;
-    }
-    .sidebar button {
-        width:100%;
-        margin:5px 0;
-        padding:12px;
-        background:#333;
-        color:white;
-        border:none;
-        cursor:pointer;
-    }
-    .content {
-        flex:1;
-        padding:20px;
-    }
-    table {
-        width:100%;
-        border-collapse: collapse;
-    }
-    td, th {
-        border:1px solid #ccc;
-        padding:8px;
-        text-align:center;
-    }
-    </style>
+<!DOCTYPE html>
+<html>
+<head>
+<title>JIG System</title>
 
-    <script>
-    async function loadTab(tab){
-        let res = await fetch("/tab/" + tab)
-        let html = await res.text()
-        document.getElementById("content").innerHTML = html
-    }
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
 
-    setInterval(()=>loadTab('dashboard'),3000)
-    </script>
-    </head>
+<style>
+body { margin:0; font-family:Arial; display:flex; background:#f5f6fa; }
 
-    <body onload="loadTab('dashboard')">
-        <div class="sidebar">
-            <h3>JIG System</h3>
-            <button onclick="loadTab('dashboard')">Dashboard</button>
-            <button onclick="loadTab('scan')">Scan QR</button>
-            <button onclick="loadTab('history')">Lịch sử</button>
-            <button onclick="loadTab('comment')">Comment</button>
-        </div>
+.sidebar {
+    width:240px;
+    background:#111827;
+    color:white;
+    height:100vh;
+    padding:20px 10px;
+}
 
-        <div class="content" id="content"></div>
-    </body>
-    </html>
-    """
+.sidebar h2 {
+    text-align:center;
+    margin-bottom:20px;
+}
 
-# ===== DASHBOARD =====
-@app.get("/tab/dashboard", response_class=HTMLResponse)
-def dashboard():
-    cursor.execute("SELECT * FROM JIGS")
-    jigs = cursor.fetchall()
+.menu-item {
+    padding:12px;
+    margin:6px 0;
+    cursor:pointer;
+    border-radius:8px;
+}
 
-    html = "<h2>Danh sách JIG</h2><table><tr><th>JIG</th><th>Status</th><th>Queue</th><th>Action</th></tr>"
+.menu-item:hover {
+    background:#374151;
+}
 
-    for jig, status, tx in jigs:
+.active {
+    background:#2563eb;
+}
 
-        cursor.execute("SELECT user FROM RESERVATIONS WHERE jig_id=? ORDER BY time", (jig,))
-        queue = cursor.fetchall()
-        queue_text = " → ".join([q[0] for q in queue])
+.content {
+    flex:1;
+    padding:20px;
+}
 
-        if status == "AVAILABLE":
-            color = "green"
-            action = f"<button onclick=\"loadTab('borrow_form?jig={jig}')\">Mượn</button>"
-        else:
-            color = "red"
-            action = f"<button onclick=\"loadTab('reserve_form?jig={jig}')\">Đặt</button>"
+.card {
+    background:white;
+    padding:15px;
+    border-radius:10px;
+    box-shadow:0 2px 5px rgba(0,0,0,0.1);
+}
 
-        html += f"<tr><td>{jig}</td><td style='color:{color}'>{status}</td><td>{queue_text}</td><td>{action}</td></tr>"
+table {
+    width:100%;
+    border-collapse: collapse;
+}
 
-    html += "</table>"
-    return html
+th {
+    background:#2563eb;
+    color:white;
+}
 
-# ===== BORROW FORM =====
-@app.get("/tab/borrow_form", response_class=HTMLResponse)
-def borrow_form(jig: str):
-    return f"""
-    <h2>Mượn {jig}</h2>
-    <form action="/borrow" method="post">
-        Tên: <input name="user"><br><br>
-        Ngày trả dự kiến: <input type="datetime-local" name="expected"><br><br>
-        <input type="hidden" name="jig_id" value="{jig}">
-        <button type="submit">Xác nhận</button>
-    </form>
-    """
+td, th {
+    padding:10px;
+    border-bottom:1px solid #ddd;
+    text-align:center;
+}
 
-# ===== BORROW =====
-@app.post("/borrow", response_class=HTMLResponse)
-def borrow(jig_id: str = Form(...), user: str = Form(...), expected: str = Form(...)):
-    tx_id = str(uuid.uuid4())
+button {
+    padding:6px 10px;
+    border:none;
+    background:#2563eb;
+    color:white;
+    border-radius:5px;
+    cursor:pointer;
+}
+</style>
 
-    cursor.execute("UPDATE JIGS SET status='IN_USE', current_tx=? WHERE id=?", (tx_id, jig_id))
-    cursor.execute("""
-    INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, NULL, NULL)
-    """, (tx_id, jig_id, user, datetime.now().isoformat(), expected))
+<script>
+function setActive(el){
+    document.querySelectorAll(".menu-item").forEach(e=>e.classList.remove("active"))
+    el.classList.add("active")
+}
 
-    conn.commit()
+async function loadTab(tab, el){
+    if(el) setActive(el)
+    let res = await fetch("/tab/" + tab)
+    document.getElementById("content").innerHTML = await res.text()
+}
 
-    url = f"{BASE_URL}/return?tx={tx_id}"
-    img = qrcode.make(url)
-    path = f"{tx_id}.png"
-    img.save(path)
+setInterval(()=>loadTab('dashboard'),3000)
+</script>
+</head>
 
-    return f"""
-    <h2>QR Code</h2>
-    <p>Scan để trả JIG</p>
-    <img src="/qr/{tx_id}">
-    """
+<body onload="loadTab('dashboard')">
 
-# ===== QR =====
-@app.get("/qr/{tx_id}")
-def get_qr(tx_id: str):
-    return FileResponse(f"{tx_id}.png")
+<div class="sidebar">
+    <h2>⚙️ JIG System</h2>
 
-# ===== SCAN PAGE =====
-@app.get("/tab/scan", response_class=HTMLResponse)
-def scan_page():
-    return """
-    <h2>Scan QR để trả JIG</h2>
-    <div id="reader" style="width:300px;"></div>
+    <div class="menu-item active" onclick="loadTab('dashboard', this)">
+        <i class="fa fa-home"></i> Dashboard
+    </div>
 
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <div class="menu-item" onclick="loadTab('scan', this)">
+        <i class="fa fa-camera"></i> Scan QR
+    </div>
 
-    <script>
-    function onScanSuccess(decodedText) {
-        window.location.href = decodedText;
-    }
+    <div class="menu-item" onclick="loadTab('history', this)">
+        <i class="fa fa-clock"></i> History
+    </div>
 
-    let scanner = new Html5QrcodeScanner("reader", {
-        fps: 10,
-        qrbox: 250
-    });
+    <div class="menu-item" onclick="loadTab('comment', this)">
+        <i class="fa fa-comment"></i> Comment
+    </div>
+</div>
 
-    scanner.render(onScanSuccess);
-    </script>
-    """
+<div class="content" id="content"></div>
 
-# ===== RESERVE FORM =====
-@app.get("/tab/reserve_form", response_class=HTMLResponse)
-def reserve_form(jig: str):
-    return f"""
-    <h2>Đặt JIG {jig}</h2>
-    <form action="/reserve" method="post">
-        Tên: <input name="user"><br><br>
-        <input type="hidden" name="jig_id" value="{jig}">
-        <button type="submit">Đặt</button>
-    </form>
-    """
-
-# ===== RESERVE =====
-@app.post("/reserve", response_class=HTMLResponse)
-def reserve(jig_id: str = Form(...), user: str = Form(...)):
-    cursor.execute("""
-    INSERT INTO RESERVATIONS VALUES (?, ?, ?, ?)
-    """, (str(uuid.uuid4()), jig_id, user, datetime.now().isoformat()))
-
-    conn.commit()
-
-    return "<h3>Đã đặt JIG (FIFO)</h3>"
-
-# ===== RETURN PAGE =====
-@app.get("/return", response_class=HTMLResponse)
-def return_page(tx: str):
-    cursor.execute("SELECT jig_id, user FROM TRANSACTIONS WHERE id=?", (tx,))
-    data = cursor.fetchone()
-
-    if not data:
-        return "Invalid QR"
-
-    jig_id, user = data
-
-    return f"""
-    <h2>Trả JIG</h2>
-    <p>JIG: {jig_id}</p>
-    <p>Người mượn: {user}</p>
-
-    <form action="/confirm_return" method="post">
-        <input type="hidden" name="tx" value="{tx}">
-        Tên người trả: <input name="returned_by"><br><br>
-        <button type="submit">Xác nhận trả</button>
-    </form>
-    """
-
-# ===== CONFIRM RETURN =====
-@app.post("/confirm_return", response_class=HTMLResponse)
-def confirm_return(tx: str = Form(...), returned_by: str = Form(...)):
-
-    cursor.execute("SELECT jig_id FROM TRANSACTIONS WHERE id=?", (tx,))
-    jig_id = cursor.fetchone()[0]
-
-    cursor.execute("""
-    UPDATE TRANSACTIONS
-    SET return_time=?, returned_by=?
-    WHERE id=?
-    """, (datetime.now().isoformat(), returned_by, tx))
-
-    # FIFO
-    cursor.execute("SELECT id, user FROM RESERVATIONS WHERE jig_id=? ORDER BY time LIMIT 1", (jig_id,))
-    next_user = cursor.fetchone()
-
-    if next_user:
-        res_id, user = next_user
-        new_tx = str(uuid.uuid4())
-
-        cursor.execute("UPDATE JIGS SET current_tx=? WHERE id=?", (new_tx, jig_id))
-
-        cursor.execute("""
-        INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, NULL, NULL)
-        """, (new_tx, jig_id, user, datetime.now().isoformat(), ""))
-
-        cursor.execute("DELETE FROM RESERVATIONS WHERE id=?", (res_id,))
-        conn.commit()
-
-        return f"<h2>Đã chuyển JIG cho {user}</h2>"
-
-    else:
-        cursor.execute("UPDATE JIGS SET status='AVAILABLE', current_tx=NULL WHERE id=?", (jig_id,))
-        conn.commit()
-
-        return "<h2>Đã trả thành công</h2>"
-
-# ===== HISTORY =====
-@app.get("/tab/history", response_class=HTMLResponse)
-def history():
-    cursor.execute("SELECT * FROM TRANSACTIONS ORDER BY borrow_time DESC")
-    data = cursor.fetchall()
-
-    html = "<h2>Lịch sử</h2><table><tr><th>JIG</th><th>User</th><th>Mượn</th><th>Trả</th></tr>"
-
-    for row in data:
-        _, jig, user, bt, exp, rt, rb = row
-        html += f"<tr><td>{jig}</td><td>{user}</td><td>{bt}</td><td>{rt or ''}</td></tr>"
-
-    html += "</table>"
-    return html
-
-# ===== COMMENT =====
-@app.get("/tab/comment", response_class=HTMLResponse)
-def comment():
-    cursor.execute("SELECT * FROM COMMENTS ORDER BY time DESC")
-    data = cursor.fetchall()
-
-    html = """
-    <h2>Comment</h2>
-    <form action="/add_comment" method="post">
-        JIG: <input name="jig"><br>
-        User: <input name="user"><br>
-        Nội dung: <input name="content"><br>
-        <button type="submit">Gửi</button>
-    </form>
-    <hr>
-    """
-
-    for _, jig, user, content, time in data:
-        html += f"<p><b>{jig}</b>: {content} ({user})</p>"
-
-    return html
-
-@app.post("/add_comment", response_class=HTMLResponse)
-def add_comment(jig: str = Form(...), user: str = Form(...), content: str = Form(...)):
-    cursor.execute("""
-    INSERT INTO COMMENTS VALUES (?, ?, ?, ?, ?)
-    """, (str(uuid.uuid4()), jig, user, content, datetime.now().isoformat()))
-    conn.commit()
-
-    return "<h3>Đã thêm comment</h3>"
+</body>
+</html>
+"""
