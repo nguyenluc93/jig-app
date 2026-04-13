@@ -46,12 +46,12 @@ CREATE TABLE IF NOT EXISTS COMMENTS (
 
 conn.commit()
 
-# init JIG
+# INIT DATA
 for jig in ["T-1-2-1", "T-1-2-2", "T-1-2-3"]:
     cursor.execute("INSERT OR IGNORE INTO JIGS VALUES (?, 'AVAILABLE', NULL)", (jig,))
 conn.commit()
 
-# ===== UI MAIN =====
+# ===== MAIN UI =====
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -61,7 +61,7 @@ def home():
     <style>
     body { margin:0; font-family:Arial; display:flex; }
     .sidebar {
-        width:200px;
+        width:220px;
         background:#1e1e2f;
         color:white;
         height:100vh;
@@ -70,7 +70,7 @@ def home():
     .sidebar button {
         width:100%;
         margin:5px 0;
-        padding:10px;
+        padding:12px;
         background:#333;
         color:white;
         border:none;
@@ -87,6 +87,7 @@ def home():
     td, th {
         border:1px solid #ccc;
         padding:8px;
+        text-align:center;
     }
     </style>
 
@@ -97,7 +98,7 @@ def home():
         document.getElementById("content").innerHTML = html
     }
 
-    setInterval(()=>loadTab('dashboard'),5000)
+    setInterval(()=>loadTab('dashboard'),3000)
     </script>
     </head>
 
@@ -105,13 +106,12 @@ def home():
         <div class="sidebar">
             <h3>JIG System</h3>
             <button onclick="loadTab('dashboard')">Dashboard</button>
-            <button onclick="loadTab('borrow')">Mượn JIG</button>
+            <button onclick="loadTab('scan')">Scan QR</button>
             <button onclick="loadTab('history')">Lịch sử</button>
             <button onclick="loadTab('comment')">Comment</button>
         </div>
 
-        <div class="content" id="content">
-        </div>
+        <div class="content" id="content"></div>
     </body>
     </html>
     """
@@ -124,15 +124,15 @@ def dashboard():
 
     html = "<h2>Danh sách JIG</h2><table><tr><th>JIG</th><th>Status</th><th>Action</th></tr>"
 
-    for row in data:
-        jig, status, tx = row
-
+    for jig, status, tx in data:
         if status == "AVAILABLE":
+            color = "green"
             action = f"<button onclick=\"loadTab('borrow_form?jig={jig}')\">Mượn</button>"
         else:
-            action = "Đang dùng"
+            color = "red"
+            action = "Đang sử dụng"
 
-        html += f"<tr><td>{jig}</td><td>{status}</td><td>{action}</td></tr>"
+        html += f"<tr><td>{jig}</td><td style='color:{color}'>{status}</td><td>{action}</td></tr>"
 
     html += "</table>"
     return html
@@ -143,10 +143,10 @@ def borrow_form(jig: str):
     return f"""
     <h2>Mượn {jig}</h2>
     <form action="/borrow" method="post">
-        <input type="hidden" name="jig_id" value="{jig}">
         Tên: <input name="user"><br><br>
         Ngày trả dự kiến: <input type="datetime-local" name="expected"><br><br>
-        <button type="submit">Mượn</button>
+        <input type="hidden" name="jig_id" value="{jig}">
+        <button type="submit">Xác nhận</button>
     </form>
     """
 
@@ -173,10 +173,34 @@ def borrow(jig_id: str = Form(...), user: str = Form(...), expected: str = Form(
     <img src="/qr/{tx_id}">
     """
 
-# ===== QR IMAGE =====
+# ===== QR =====
 @app.get("/qr/{tx_id}")
 def get_qr(tx_id: str):
     return FileResponse(f"{tx_id}.png")
+
+# ===== SCAN PAGE =====
+@app.get("/tab/scan", response_class=HTMLResponse)
+def scan_page():
+    return """
+    <h2>Scan QR để trả JIG</h2>
+
+    <div id="reader" style="width:300px;"></div>
+
+    <script src="https://unpkg.com/html5-qrcode"></script>
+
+    <script>
+    function onScanSuccess(decodedText) {
+        window.location.href = decodedText;
+    }
+
+    let scanner = new Html5QrcodeScanner("reader", {
+        fps: 10,
+        qrbox: 250
+    });
+
+    scanner.render(onScanSuccess);
+    </script>
+    """
 
 # ===== RETURN PAGE =====
 @app.get("/return", response_class=HTMLResponse)
@@ -251,9 +275,8 @@ def comment():
     <hr>
     """
 
-    for row in data:
-        _, jig, user, content, time = row
-        html += f"<p><b>{jig}</b> - {content} ({user})</p>"
+    for _, jig, user, content, time in data:
+        html += f"<p><b>{jig}</b>: {content} ({user})</p>"
 
     return html
 
