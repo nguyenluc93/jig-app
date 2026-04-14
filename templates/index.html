@@ -1,117 +1,117 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>JIG System</title>
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial;
-            display: flex;
-        }
+<title>JIG System</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
-        /* Sidebar */
-        .sidebar {
-            width: 220px;
-            background: #2f3542;
-            color: white;
-            height: 100vh;
-            padding: 20px;
-        }
+<style>
+body { margin:0; font-family:Arial; display:flex; }
 
-        .sidebar h2 {
-            margin-bottom: 20px;
-        }
+/* Sidebar */
+.sidebar {
+    width:240px; background:#1e272e; color:white; height:100vh; padding:20px;
+}
+.sidebar h2 { margin-bottom:20px; }
+.sidebar button {
+    width:100%; padding:10px; margin:5px 0;
+    background:#485460; border:none; color:white; cursor:pointer;
+}
+.sidebar button:hover { background:#808e9b; }
 
-        .sidebar button {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: none;
-            background: #57606f;
-            color: white;
-            cursor: pointer;
-        }
+/* Content */
+.content { flex:1; padding:30px; background:#f5f6fa; }
 
-        .sidebar button:hover {
-            background: #747d8c;
-        }
+.card {
+    background:white; padding:20px; border-radius:10px; margin-bottom:20px;
+}
 
-        /* Content */
-        .content {
-            flex: 1;
-            padding: 30px;
-            background: #f1f2f6;
-        }
+.grid {
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px,1fr));
+    gap:10px;
+}
 
-        .card {
-            background: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 10px;
-        }
+.jig {
+    border:1px solid #ccc; padding:10px; border-radius:8px;
+    cursor:pointer;
+}
+.jig.selected {
+    background:#2ed573; color:white;
+}
 
-        input {
-            padding: 8px;
-            margin: 5px;
-        }
-
-        button.action {
-            background: #2ed573;
-            border: none;
-            padding: 10px;
-            color: white;
-            cursor: pointer;
-        }
-
-        ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        li {
-            background: #fff;
-            margin: 5px 0;
-            padding: 10px;
-            border-radius: 6px;
-        }
-    </style>
+textarea {
+    width:100%; height:100px;
+}
+</style>
 </head>
+
 <body>
 
+<!-- SIDEBAR -->
 <div class="sidebar">
     <h2>JIG System</h2>
-    <button onclick="showTab('borrow')">Mượn JIG</button>
-    <button onclick="showTab('return')">Trả JIG</button>
-    <button onclick="showTab('logs')">Logs</button>
+
+    <button onclick="showMain('dashboard')">Dashboard</button>
+    <button onclick="showMain('logs')">JIG Logs</button>
+    <button onclick="showMain('comment')">Comment</button>
 </div>
 
+<!-- CONTENT -->
 <div class="content">
 
-    <!-- Borrow -->
-    <div id="borrow" class="tab">
+    <!-- DASHBOARD -->
+    <div id="dashboard">
+
         <div class="card">
-            <h3>Mượn JIG</h3>
-            <input id="name" placeholder="Tên">
-            <input id="email" placeholder="Email">
-            <input id="jig" placeholder="JIG name">
-            <button class="action" onclick="borrow()">Mượn</button>
+            <h2>Chào mừng {{username}} đến với hệ thống quản lý JIG</h2>
         </div>
+
+        <div class="card">
+            <button onclick="showSub('borrow')">Mượn</button>
+            <button onclick="showSub('return')">Trả</button>
+            <button onclick="showSub('reserve')">Đặt trước</button>
+        </div>
+
+        <!-- Borrow -->
+        <div id="borrow" class="card" style="display:none;">
+            <h3>Chọn JIG để mượn</h3>
+            <div id="jigList" class="grid"></div>
+            <br>
+            <button onclick="confirmBorrow()">Xác nhận mượn</button>
+            <canvas id="qr"></canvas>
+        </div>
+
+        <!-- Return -->
+        <div id="return" class="card" style="display:none;">
+            <h3>Scan QR để trả JIG</h3>
+            <video id="camera" width="300" autoplay></video>
+        </div>
+
+        <!-- Reserve -->
+        <div id="reserve" class="card" style="display:none;">
+            <h3>Đặt trước JIG</h3>
+            <input id="reserveJig" placeholder="Tên JIG">
+            <button onclick="reserve()">Đặt trước</button>
+        </div>
+
     </div>
 
-    <!-- Return -->
-    <div id="return" class="tab" style="display:none;">
+    <!-- LOGS -->
+    <div id="logs" style="display:none;">
         <div class="card">
-            <h3>Trả JIG</h3>
-            <input id="jig_return" placeholder="JIG name">
-            <button class="action" onclick="returnJig()">Trả</button>
-        </div>
-    </div>
-
-    <!-- Logs -->
-    <div id="logs" class="tab" style="display:none;">
-        <div class="card">
-            <h3>Logs</h3>
+            <h3>Lịch sử JIG (30 ngày)</h3>
             <ul id="logList"></ul>
+        </div>
+    </div>
+
+    <!-- COMMENT -->
+    <div id="comment" style="display:none;">
+        <div class="card">
+            <h3>Ghi chú / vấn đề</h3>
+            <textarea id="commentText"></textarea>
+            <br>
+            <button onclick="addComment()">Gửi</button>
+            <ul id="commentList"></ul>
         </div>
     </div>
 
@@ -119,54 +119,130 @@
 
 <script>
 
-function showTab(tab) {
-    document.querySelectorAll('.tab').forEach(t => t.style.display = 'none');
-    document.getElementById(tab).style.display = 'block';
+// =====================
+// NAVIGATION
+// =====================
+function showMain(tab) {
+    document.getElementById("dashboard").style.display="none";
+    document.getElementById("logs").style.display="none";
+    document.getElementById("comment").style.display="none";
+
+    document.getElementById(tab).style.display="block";
 }
 
-async function borrow() {
-    let res = await fetch('/borrow', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            user_name: document.getElementById('name').value,
-            user_email: document.getElementById('email').value,
-            jig_name: document.getElementById('jig').value
-        })
+function showSub(tab) {
+    document.getElementById("borrow").style.display="none";
+    document.getElementById("return").style.display="none";
+    document.getElementById("reserve").style.display="none";
+
+    document.getElementById(tab).style.display="block";
+}
+
+// =====================
+// JIG LIST (demo)
+// =====================
+let jigs = ["JIG-A","JIG-B","JIG-C","JIG-D"];
+let selected = [];
+
+function renderJigs(){
+    let container = document.getElementById("jigList");
+    container.innerHTML="";
+
+    jigs.forEach(j=>{
+        let div=document.createElement("div");
+        div.className="jig";
+        div.innerText=j;
+
+        div.onclick=()=>{
+            div.classList.toggle("selected");
+
+            if(selected.includes(j)){
+                selected = selected.filter(x=>x!==j);
+            }else{
+                selected.push(j);
+            }
+        };
+
+        container.appendChild(div);
     });
+}
+renderJigs();
 
-    let data = await res.json();
-    alert(data.message || data.error);
+// =====================
+// BORROW + QR
+// =====================
+async function confirmBorrow(){
+    if(selected.length===0){
+        alert("Chọn JIG");
+        return;
+    }
+
+    let user = new URLSearchParams(window.location.search).get("user");
+
+    for (let j of selected){
+        await fetch('/borrow', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+                jig_name: j,
+                user: user
+            })
+        });
+    }
+
+    QRCode.toCanvas(document.getElementById("qr"), selected.join(","));
+
+    alert("Đã mượn và tạo QR");
 }
 
-async function returnJig() {
-    await fetch('/return', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            jig_name: document.getElementById('jig_return').value
-        })
-    });
+// =====================
+// RETURN (camera mở)
+// =====================
+navigator.mediaDevices.getUserMedia({video:true})
+.then(stream=>{
+    document.getElementById("camera").srcObject=stream;
+});
 
-    alert("Return OK");
-}
-
-async function loadLogs() {
+// =====================
+// LOGS
+// =====================
+async function loadLogs(){
     let res = await fetch('/logs');
     let data = await res.json();
 
-    let ul = document.getElementById('logList');
-    ul.innerHTML = "";
+    let ul=document.getElementById("logList");
+    ul.innerHTML="";
 
-    data.forEach(row => {
-        let li = document.createElement('li');
-        li.innerText = `${row.jig} - ${row.user || ""} - ${row.status} - ${row.time}`;
+    data.forEach(r=>{
+        let li=document.createElement("li");
+        li.innerText = `${r.jig} | Mượn: ${r.borrow || "-"} | Trả: ${r.return || "-"} | ${r.time}`;
         ul.appendChild(li);
     });
 }
 
-// load logs khi vào tab
-setInterval(loadLogs, 3000);
+setInterval(loadLogs,3000);
+
+// =====================
+// COMMENT (local)
+// =====================
+let comments=[];
+
+function addComment(){
+    let text=document.getElementById("commentText").value;
+    comments.push(text);
+
+    let li=document.createElement("li");
+    li.innerText=text;
+    document.getElementById("commentList").appendChild(li);
+}
+
+// =====================
+// RESERVE (demo)
+// =====================
+function reserve(){
+    let jig=document.getElementById("reserveJig").value;
+    alert("Đã đặt trước: " + jig);
+}
 
 </script>
 
