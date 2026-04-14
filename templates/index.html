@@ -1,17 +1,67 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>JIG</title>
+<title>JIG System</title>
+
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
 
 <style>
 body{margin:0;display:flex;font-family:Arial}
-.sidebar{width:220px;background:#2f3542;color:white;padding:20px;height:100vh}
-.sidebar button{width:100%;margin:5px 0;padding:10px}
-.content{flex:1;padding:20px;background:#f1f2f6}
-.card{background:white;padding:20px;margin-bottom:15px;border-radius:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,120px);gap:10px}
-.jig{padding:10px;text-align:center;border-radius:8px;background:#dfe4ea;cursor:pointer}
+
+/* SIDEBAR */
+.sidebar{
+width:250px;
+background:#2f3542;
+color:white;
+padding:15px;
+height:100vh;
+}
+
+.menu-title{
+font-weight:bold;
+margin-top:15px;
+}
+
+.sidebar button{
+width:100%;
+padding:10px;
+margin:5px 0;
+border:none;
+background:#57606f;
+color:white;
+cursor:pointer;
+border-radius:5px;
+}
+
+.sidebar button:hover{background:#747d8c}
+
+/* CONTENT */
+.content{
+flex:1;
+padding:20px;
+background:#f1f2f6;
+}
+
+/* CARD */
+.card{
+background:white;
+padding:15px;
+border-radius:10px;
+margin-bottom:15px;
+}
+
+/* TABLE */
+table{
+width:100%;
+border-collapse:collapse;
+}
+th,td{
+border:1px solid #ccc;
+padding:8px;
+text-align:center;
+}
+
 .green{background:#2ed573;color:white}
 .red{background:#ff4757;color:white}
 </style>
@@ -19,54 +69,83 @@ body{margin:0;display:flex;font-family:Arial}
 
 <body>
 
+<!-- SIDEBAR -->
 <div class="sidebar">
-<h2>JIG</h2>
-<button onclick="show('dash')">Dashboard</button>
+<h2>JIG System</h2>
+
+<div class="menu-title">Dashboard</div>
+<button onclick="show('home')">Home</button>
+<button onclick="show('borrow')">Mượn JIG</button>
+<button onclick="show('return')">Trả JIG</button>
+<button onclick="show('reserve')">Đặt trước</button>
+
+<div class="menu-title">Monitor</div>
+<button onclick="show('logs')">Logs</button>
 <button onclick="show('comment')">Comment</button>
 </div>
 
+<!-- CONTENT -->
 <div class="content">
 
-<div id="dash">
+<!-- HOME -->
+<div id="home" class="card">
+<h2>Xin chào {{username}}</h2>
+<p>Chào mừng đến hệ thống quản lý JIG</p>
+</div>
+
+<!-- STATUS -->
 <div class="card">
-<h2>Welcome {{username}}</h2>
+<h3>Trạng thái JIG</h3>
+<div id="status"></div>
 </div>
 
-<div class="card">
-<button onclick="tab('borrow')">Borrow</button>
-<button onclick="tab('return')">Return</button>
-<button onclick="tab('reserve')">Reserve</button>
-</div>
-
-<div id="status" class="card">
-<h3>Status</h3>
-<div id="statusGrid" class="grid"></div>
-</div>
-
+<!-- BORROW -->
 <div id="borrow" class="card" style="display:none">
-<div id="jigs" class="grid"></div>
-<button onclick="borrow()">Confirm</button>
+<h3>Mượn JIG</h3>
+
+<table>
+<tr>
+<th>JIG</th>
+<th>Image</th>
+<th>Action</th>
+</tr>
+<tbody id="tb"></tbody>
+</table>
+
+<br>
+<button onclick="confirmBorrow()">Xác nhận</button>
+
+<h4>QR</h4>
 <canvas id="qr"></canvas>
 </div>
 
+<!-- RETURN -->
 <div id="return" class="card" style="display:none">
-<input id="returnJig">
-<button onclick="returnJig()">Return</button>
+<h3>Scan QR để trả</h3>
+<div id="reader"></div>
 </div>
 
+<!-- RESERVE -->
 <div id="reserve" class="card" style="display:none">
+<h3>Đặt trước</h3>
 <input id="resJig">
-<button onclick="reserve()">Reserve</button>
+<button onclick="reserve()">Đặt</button>
+<div id="queue"></div>
 </div>
 
+<!-- LOG -->
+<div id="logs" class="card" style="display:none">
+<h3>Logs</h3>
+<div id="logList"></div>
 </div>
 
-<div id="comment" style="display:none">
-<div class="card">
+<!-- COMMENT -->
+<div id="comment" class="card" style="display:none">
+<h3>Comment</h3>
 <textarea id="cmt"></textarea>
-<button onclick="addComment()">Send</button>
+<br>
+<button onclick="addComment()">Gửi</button>
 <div id="cmtList"></div>
-</div>
 </div>
 
 </div>
@@ -74,101 +153,126 @@ body{margin:0;display:flex;font-family:Arial}
 <script>
 
 let user=new URLSearchParams(location.search).get("user")
-let jigs=["A","B","C","D","E"]
+let jigs=["A","B","C"]
 let selected=[]
 
+// NAV
 function show(id){
-document.getElementById("dash").style.display="none"
-document.getElementById("comment").style.display="none"
+["home","borrow","return","reserve","logs","comment"].forEach(x=>{
+document.getElementById(x).style.display="none"
+})
 document.getElementById(id).style.display="block"
+
+if(id==="return") startScan()
 }
 
-function tab(id){
-["borrow","return","reserve"].forEach(x=>document.getElementById(x).style.display="none")
-document.getElementById(id).style.display="block"
-}
+// TABLE
+let tb=document.getElementById("tb")
 
-function render(){
-let el=document.getElementById("jigs")
 jigs.forEach(j=>{
-let d=document.createElement("div")
-d.className="jig"
-d.innerText=j
-d.onclick=()=>{
-d.classList.toggle("green")
-selected.includes(j)?selected=selected.filter(x=>x!==j):selected.push(j)
+let tr=document.createElement("tr")
+tr.innerHTML=`
+<td>${j}</td>
+<td><button onclick="view('${j}')">View</button></td>
+<td><button onclick="selectJig('${j}')">Chọn</button></td>
+`
+tb.appendChild(tr)
+})
+
+function view(j){
+window.open("/static/images/"+j+".jpg")
 }
-el.appendChild(d)
+
+function selectJig(j){
+if(!selected.includes(j)) selected.push(j)
+alert(j+" selected")
+}
+
+// BORROW
+async function confirmBorrow(){
+for(let j of selected){
+await fetch("/borrow",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:j,user:user})
 })
 }
-render()
 
-async function borrow(){
-for(let j of selected){
-await fetch("/borrow",{method:"POST",headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:j,user:user})})
-}
-QRCode.toCanvas(document.getElementById("qr"),selected.join(","))
+let url=location.origin+"/return-page?jigs="+selected.join(",")
+QRCode.toCanvas(document.getElementById("qr"),url)
 }
 
-async function returnJig(){
-let j=document.getElementById("returnJig").value
-await fetch("/return",{method:"POST",headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:j,user:user})})
+// CAMERA SCAN
+function startScan(){
+let scanner=new Html5Qrcode("reader")
+
+scanner.start({facingMode:"environment"},{fps:10,qrbox:250},
+(text)=>{
+window.location.href=text
+})
 }
 
-async function reserve(){
-let j=document.getElementById("resJig").value
-await fetch("/reserve",{method:"POST",headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:j,user:user})})
-}
-
+// STATUS
 async function loadStatus(){
 let res=await fetch("/jig-status")
 let data=await res.json()
 
-let el=document.getElementById("statusGrid")
+let el=document.getElementById("status")
 el.innerHTML=""
 
-jigs.forEach(j=>{
+Object.keys(data).forEach(j=>{
 let d=document.createElement("div")
-d.className="jig"
 
-if(data[j] && data[j].status==="BORROW"){
-d.classList.add("red")
-d.innerText=j+" ("+(data[j].user||"")+ ")"
+if(data[j]=="BORROW"){
+d.className="red"
+d.innerText=j+" đang dùng"
 }else{
-d.classList.add("green")
-d.innerText=j+" (free)"
+d.className="green"
+d.innerText=j+" free"
 }
+
 el.appendChild(d)
 })
 }
 setInterval(loadStatus,3000)
 loadStatus()
 
-async function addComment(){
-let text=document.getElementById("cmt").value
-await fetch("/comment",{method:"POST",headers:{'Content-Type':'application/json'},
-body:JSON.stringify({user:user,content:text})})
-loadComment()
-}
-
-async function loadComment(){
-let res=await fetch("/comment")
+// LOG
+async function loadLog(){
+let res=await fetch("/logs")
 let data=await res.json()
 
-let el=document.getElementById("cmtList")
+let el=document.getElementById("logList")
 el.innerHTML=""
 
-data.forEach(c=>{
+data.forEach(l=>{
 let d=document.createElement("div")
-d.innerText=c.user+" : "+c.content
+d.innerText=`${l.jig} | ${l.status} | M:${l.borrow||""} | R:${l.return||""} | ${l.time}`
 el.appendChild(d)
 })
 }
-setInterval(loadComment,5000)
-loadComment()
+setInterval(loadLog,3000)
+loadLog()
+
+// RESERVE
+async function reserve(){
+let j=document.getElementById("resJig").value
+await fetch("/reserve",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:j,user:user})
+})
+}
+
+// COMMENT
+async function addComment(){
+let t=document.getElementById("cmt").value
+await fetch("/comment",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({user:user,content:t})
+})
+}
 
 </script>
 
