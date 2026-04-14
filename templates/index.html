@@ -1,35 +1,131 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>JIG Management</title>
+    <title>JIG System</title>
     <style>
-        body { font-family: Arial; margin: 40px; }
-        h1 { color: #333; }
-        button { padding: 10px; margin: 5px; }
-        input { padding: 8px; margin: 5px; }
+        body {
+            margin: 0;
+            font-family: Arial;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: #2f3542;
+            color: white;
+            height: 100vh;
+            padding: 20px;
+        }
+
+        .sidebar h2 {
+            margin-bottom: 20px;
+        }
+
+        .sidebar button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            background: #57606f;
+            color: white;
+            cursor: pointer;
+        }
+
+        .sidebar button:hover {
+            background: #747d8c;
+        }
+
+        /* Content */
+        .content {
+            flex: 1;
+            padding: 30px;
+            background: #f1f2f6;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+        }
+
+        input {
+            padding: 8px;
+            margin: 5px;
+        }
+
+        button.action {
+            background: #2ed573;
+            border: none;
+            padding: 10px;
+            color: white;
+            cursor: pointer;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        li {
+            background: #fff;
+            margin: 5px 0;
+            padding: 10px;
+            border-radius: 6px;
+        }
     </style>
 </head>
 <body>
 
-<h1>JIG Management System</h1>
+<div class="sidebar">
+    <h2>JIG System</h2>
+    <button onclick="showTab('borrow')">Mượn JIG</button>
+    <button onclick="showTab('return')">Trả JIG</button>
+    <button onclick="showTab('logs')">Logs</button>
+</div>
 
-<h2>Mượn JIG</h2>
-<input id="name" placeholder="Tên">
-<input id="email" placeholder="Email">
-<input id="jig" placeholder="JIG name">
-<button onclick="borrow()">Mượn</button>
+<div class="content">
 
-<h2>Trả JIG</h2>
-<input id="jig_return" placeholder="JIG name">
-<button onclick="returnJig()">Trả</button>
+    <!-- Borrow -->
+    <div id="borrow" class="tab">
+        <div class="card">
+            <h3>Mượn JIG</h3>
+            <input id="name" placeholder="Tên">
+            <input id="email" placeholder="Email">
+            <input id="jig" placeholder="JIG name">
+            <button class="action" onclick="borrow()">Mượn</button>
+        </div>
+    </div>
 
-<h2>Logs</h2>
-<button onclick="loadLogs()">Load</button>
-<ul id="logs"></ul>
+    <!-- Return -->
+    <div id="return" class="tab" style="display:none;">
+        <div class="card">
+            <h3>Trả JIG</h3>
+            <input id="jig_return" placeholder="JIG name">
+            <button class="action" onclick="returnJig()">Trả</button>
+        </div>
+    </div>
+
+    <!-- Logs -->
+    <div id="logs" class="tab" style="display:none;">
+        <div class="card">
+            <h3>Logs</h3>
+            <ul id="logList"></ul>
+        </div>
+    </div>
+
+</div>
 
 <script>
+
+function showTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.style.display = 'none');
+    document.getElementById(tab).style.display = 'block';
+}
+
 async function borrow() {
-    await fetch('/borrow', {
+    let res = await fetch('/borrow', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -38,7 +134,9 @@ async function borrow() {
             jig_name: document.getElementById('jig').value
         })
     });
-    alert("Borrow OK");
+
+    let data = await res.json();
+    alert(data.message || data.error);
 }
 
 async function returnJig() {
@@ -49,6 +147,7 @@ async function returnJig() {
             jig_name: document.getElementById('jig_return').value
         })
     });
+
     alert("Return OK");
 }
 
@@ -56,16 +155,19 @@ async function loadLogs() {
     let res = await fetch('/logs');
     let data = await res.json();
 
-    let ul = document.getElementById('logs');
+    let ul = document.getElementById('logList');
     ul.innerHTML = "";
 
     data.forEach(row => {
         let li = document.createElement('li');
-        li.innerText = row;
+        li.innerText = `${row.jig} - ${row.user || ""} - ${row.status} - ${row.time}`;
         ul.appendChild(li);
     });
 }
+
+// load logs khi vào tab
 setInterval(loadLogs, 3000);
+
 </script>
 
 </body>
