@@ -1,196 +1,353 @@
-import os
-import psycopg2
-from psycopg2 import pool
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel
+<!DOCTYPE html>
+<html>
+<head>
+<title>JIG管理システム</title>
 
-app = FastAPI()
-DATABASE_URL = os.getenv("DATABASE_URL")
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
 
-db_pool = None
+<style>
+body{margin:0;display:flex;font-family:Arial}
 
-# ================= DB =================
-@app.on_event("startup")
-def startup():
-    global db_pool
-    db_pool = pool.SimpleConnectionPool(1, 5, DATABASE_URL)
+/* SIDEBAR */
+.sidebar{
+width:250px;
+background:#2f3542;
+color:white;
+padding:15px;
+height:100vh;
+}
 
-    conn = db_pool.getconn()
-    cur = conn.cursor()
+.menu-title{
+margin-top:15px;
+font-weight:bold;
+}
 
-    # JIG MASTER
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS jig_master(
-        id SERIAL PRIMARY KEY,
-        jig_name TEXT UNIQUE,
-        image TEXT
-    )
-    """)
+.sidebar button{
+width:100%;
+margin:5px 0;
+padding:10px;
+background:#57606f;
+color:white;
+border:none;
+cursor:pointer;
+border-radius:5px;
+text-align:left;
+}
 
-    # JIG LOG (đầy đủ column)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS jig_log(
-        id SERIAL PRIMARY KEY,
-        jig_name TEXT,
-        borrow_user TEXT,
-        return_user TEXT,
-        status TEXT,
-        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+.sidebar button i{margin-right:8px}
+.sidebar button:hover{background:#747d8c}
 
-    # FIX nếu thiếu column (QUAN TRỌNG)
-    cur.execute("""
-    ALTER TABLE jig_log ADD COLUMN IF NOT EXISTS borrow_user TEXT;
-    """)
-    cur.execute("""
-    ALTER TABLE jig_log ADD COLUMN IF NOT EXISTS return_user TEXT;
-    """)
+/* CONTENT */
+.content{
+flex:1;
+padding:20px;
+background:#f1f2f6;
+}
 
-    conn.commit()
-    cur.close()
-    db_pool.putconn(conn)
+/* CARD */
+.card{
+background:white;
+padding:15px;
+margin-bottom:15px;
+border-radius:10px;
+}
 
-def get_conn():
-    return db_pool.getconn()
+/* DASHBOARD */
+.dashboard{
+display:flex;
+gap:15px;
+margin-top:15px;
+}
 
-def release(conn):
-    db_pool.putconn(conn)
+.dcard{
+flex:1;
+padding:20px;
+border-radius:10px;
+color:white;
+text-align:center;
+}
 
-# ================= LOGIN =================
-@app.get("/", response_class=HTMLResponse)
-def login():
-    return """
-    <h2>ログイン</h2>
-    <form action="/login" method="post">
-    <input name="username" placeholder="ユーザー名">
-    <input name="password" type="password" placeholder="パスワード">
-    <button>ログイン</button>
-    </form>
-    """
+.total{background:#1e90ff}
+.borrow{background:#ff4757}
+.free{background:#2ed573}
 
-@app.post("/login")
-def login_post(username: str = Form(...), password: str = Form(...)):
-    return RedirectResponse(f"/home?user={username}", status_code=302)
+/* TABLE */
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
-@app.get("/home", response_class=HTMLResponse)
-def home(user: str):
-    with open("templates/index.html", encoding="utf-8") as f:
-        html = f.read()
-    return html.replace("{{username}}", user)
+/* SELECTED ROW */
+.selected-row{
+background:#2ed573 !important;
+color:white;
+}
 
-# ================= JIG 管理 =================
-class Jig(BaseModel):
-    jig_name: str
-    image: str
+/* SCAN */
+#reader,#reader-return{
+width:300px;
+margin-top:10px;
+}
 
-@app.post("/add-jig")
-def add_jig(data: Jig):
-    conn = get_conn()
-    cur = conn.cursor()
+/* COMMENT */
+textarea{
+width:100%;
+height:200px;
+font-size:16px;
+padding:10px;
+}
+</style>
+</head>
 
-    cur.execute("""
-    INSERT INTO jig_master(jig_name,image)
-    VALUES(%s,%s)
-    ON CONFLICT (jig_name) DO UPDATE SET image=%s
-    """, (data.jig_name, data.image, data.image))
+<body>
 
-    conn.commit()
-    cur.close()
-    release(conn)
+<!-- SIDEBAR -->
+<div class="sidebar">
+<h2><i class="fa-solid fa-toolbox"></i> JIGシステム</h2>
 
-    return {"msg": "追加完了"}
+<div class="menu-title">Dashboard</div>
+<button onclick="show('home')"><i class="fa-solid fa-house"></i> ホーム</button>
+<button onclick="show('borrow')"><i class="fa-solid fa-hand"></i> 貸出</button>
+<button onclick="show('return')"><i class="fa-solid fa-qrcode"></i> 返却</button>
+<button onclick="show('reserve')"><i class="fa-solid fa-calendar"></i> 予約</button>
 
-@app.post("/delete-jig")
-def delete_jig(data: Jig):
-    conn = get_conn()
-    cur = conn.cursor()
+<div class="menu-title">Monitor</div>
+<button onclick="show('logs')"><i class="fa-solid fa-list"></i> ログ</button>
+<button onclick="show('comment')"><i class="fa-solid fa-comments"></i> コメント</button>
 
-    cur.execute("DELETE FROM jig_master WHERE jig_name=%s", (data.jig_name,))
+<div class="menu-title">Admin</div>
+<button onclick="show('admin')"><i class="fa-solid fa-gear"></i> 管理</button>
+</div>
 
-    conn.commit()
-    cur.close()
-    release(conn)
+<!-- CONTENT -->
+<div class="content">
 
-    return {"msg": "削除完了"}
+<!-- HOME -->
+<div id="home" class="card">
+<h2><i class="fa-solid fa-user"></i> {{username}} さん、ようこそ</h2>
 
-@app.get("/jigs")
-def get_jigs():
-    conn = get_conn()
-    cur = conn.cursor()
+<div class="dashboard">
+<div class="dcard total">総数<br><span id="total">0</span></div>
+<div class="dcard borrow">使用中<br><span id="using">0</span></div>
+<div class="dcard free">空き<br><span id="free">0</span></div>
+</div>
+</div>
 
-    cur.execute("SELECT jig_name,image FROM jig_master ORDER BY jig_name")
-    rows = cur.fetchall()
+<!-- BORROW -->
+<div id="borrow" class="card" style="display:none">
+<h3><i class="fa-solid fa-hand"></i> JIG貸出</h3>
 
-    cur.close()
-    release(conn)
+<!-- SCAN BUTTON -->
+<button onclick="startScan()">
+<i class="fa-solid fa-camera"></i> Scan JIG
+</button>
 
-    return [{"name": r[0], "image": r[1]} for r in rows]
+<div id="reader"></div>
 
-# ================= BORROW =================
-class Borrow(BaseModel):
-    jig_name: str
-    user: str
+<table>
+<tr><th>JIG</th><th>画像</th><th>操作</th></tr>
+<tbody id="tb"></tbody>
+</table>
 
-@app.post("/borrow")
-def borrow(data: Borrow):
-    conn = get_conn()
-    cur = conn.cursor()
+<h4>選択中:</h4>
+<div id="selectedList"></div>
 
-    cur.execute("""
-    INSERT INTO jig_log(jig_name,borrow_user,status)
-    VALUES(%s,%s,'BORROW')
-    """, (data.jig_name, data.user))
+<br>
+<button onclick="confirmBorrow()">
+<i class="fa-solid fa-check"></i> 確定
+</button>
 
-    conn.commit()
-    cur.close()
-    release(conn)
+<h4>QRコード</h4>
+<canvas id="qr"></canvas>
+</div>
 
-    return {"msg": "貸出完了"}
+<!-- RETURN -->
+<div id="return" class="card" style="display:none">
+<h3><i class="fa-solid fa-camera"></i> QRスキャンして返却</h3>
 
-# ================= RETURN =================
-class Return(BaseModel):
-    jig_name: str
-    user: str
+<button onclick="startReturnScan()">
+<i class="fa-solid fa-camera"></i> Scan Return
+</button>
 
-@app.post("/return")
-def return_jig(data: Return):
-    conn = get_conn()
-    cur = conn.cursor()
+<div id="reader-return"></div>
+</div>
 
-    cur.execute("""
-    INSERT INTO jig_log(jig_name,return_user,status)
-    VALUES(%s,%s,'RETURN')
-    """, (data.jig_name, data.user))
+<!-- ADMIN -->
+<div id="admin" class="card" style="display:none">
+<h3>JIG管理</h3>
 
-    conn.commit()
-    cur.close()
-    release(conn)
+<input id="name" placeholder="JIG名">
+<input id="img" placeholder="画像URL">
 
-    return {"msg": "返却完了"}
+<button onclick="addJig()">追加</button>
 
-# ================= STATUS =================
-@app.get("/jig-status")
-def jig_status():
-    conn = get_conn()
-    cur = conn.cursor()
+<div id="adminList"></div>
+</div>
 
-    cur.execute("""
-    SELECT jig_name, status, time
-    FROM jig_log
-    ORDER BY time DESC
-    """)
+</div>
 
-    rows = cur.fetchall()
+<script>
 
-    cur.close()
-    release(conn)
+let user=new URLSearchParams(location.search).get("user")
+let selected=[]
 
-    status_map = {}
+// UI
+function show(id){
+["home","borrow","return","reserve","logs","comment","admin"].forEach(x=>{
+document.getElementById(x).style.display="none"
+})
+document.getElementById(id).style.display="block"
+}
 
-    for jig_name, status, time in rows:
-        if jig_name not in status_map:
-            status_map[jig_name] = status
+// DASHBOARD
+async function loadDashboard(){
+let jigs=await (await fetch("/jigs")).json()
+let status=await (await fetch("/jig-status")).json()
 
-    return status_map
+let using=0
+jigs.forEach(j=>{
+if(status[j.name]=="BORROW") using++
+})
+
+document.getElementById("total").innerText=jigs.length
+document.getElementById("using").innerText=using
+document.getElementById("free").innerText=jigs.length-using
+}
+setInterval(loadDashboard,3000)
+loadDashboard()
+
+// LOAD JIG
+async function loadJigs(){
+let data=await (await fetch("/jigs")).json()
+
+let tb=document.getElementById("tb")
+let admin=document.getElementById("adminList")
+
+tb.innerHTML=""
+admin.innerHTML=""
+
+data.forEach(j=>{
+
+let tr=document.createElement("tr")
+tr.id="row-"+j.name
+
+tr.innerHTML=`
+<td>${j.name}</td>
+<td><img src="${j.image}" width="80"></td>
+<td>
+<button onclick="selectJig('${j.name}')">
+<i class="fa-solid fa-check"></i>
+</button>
+</td>
+`
+tb.appendChild(tr)
+
+let d=document.createElement("div")
+d.innerHTML=`${j.name}
+<button onclick="deleteJig('${j.name}')">
+<i class="fa-solid fa-trash"></i>
+</button>`
+admin.appendChild(d)
+
+})
+}
+
+// SELECT JIG (FIXED)
+function selectJig(j){
+let row=document.getElementById("row-"+j)
+
+if(selected.includes(j)){
+selected = selected.filter(x => x !== j)
+row.classList.remove("selected-row")
+}else{
+selected.push(j)
+row.classList.add("selected-row")
+}
+
+updateSelected()
+}
+
+function updateSelected(){
+document.getElementById("selectedList").innerHTML = selected.join("<br>")
+}
+
+// SCAN BORROW
+function startScan(){
+const scanner=new Html5Qrcode("reader")
+
+scanner.start(
+{ facingMode: "environment" },
+{ fps: 10 },
+(decoded)=>{
+if(!selected.includes(decoded)){
+selected.push(decoded)
+selectJig(decoded)
+}
+}
+)
+}
+
+// CONFIRM
+async function confirmBorrow(){
+for(let j of selected){
+await fetch("/borrow",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:j,user:user})
+})
+}
+
+let url=location.origin+"/return-page?jigs="+selected.join(",")
+QRCode.toCanvas(document.getElementById("qr"),url)
+}
+
+// RETURN
+function startReturnScan(){
+const scanner=new Html5Qrcode("reader-return")
+
+scanner.start(
+{ facingMode: "environment" },
+{ fps: 10 },
+async(decoded)=>{
+
+await fetch("/return",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:decoded,user:user})
+})
+
+alert("返却完了: "+decoded)
+}
+)
+}
+
+// ADMIN
+async function addJig(){
+let name=document.getElementById("name").value
+let img=document.getElementById("img").value
+
+await fetch("/add-jig",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:name,image:img})
+})
+
+loadJigs()
+}
+
+async function deleteJig(name){
+await fetch("/delete-jig",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:name})
+})
+
+loadJigs()
+}
+
+loadJigs()
+
+</script>
+
+</body>
+</html>

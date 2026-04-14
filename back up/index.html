@@ -3,7 +3,9 @@
 <head>
 <title>JIG管理システム</title>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
 
 <style>
 body{margin:0;display:flex;font-family:Arial}
@@ -17,10 +19,7 @@ padding:15px;
 height:100vh;
 }
 
-.menu-title{
-margin-top:15px;
-font-weight:bold;
-}
+.menu-title{margin-top:15px;font-weight:bold;}
 
 .sidebar button{
 width:100%;
@@ -31,16 +30,14 @@ color:white;
 border:none;
 cursor:pointer;
 border-radius:5px;
+text-align:left;
 }
 
+.sidebar button i{margin-right:8px}
 .sidebar button:hover{background:#747d8c}
 
 /* CONTENT */
-.content{
-flex:1;
-padding:20px;
-background:#f1f2f6;
-}
+.content{flex:1;padding:20px;background:#f1f2f6;}
 
 /* CARD */
 .card{
@@ -50,9 +47,38 @@ margin-bottom:15px;
 border-radius:10px;
 }
 
+/* DASHBOARD */
+.dashboard{display:flex;gap:15px;margin-top:15px;}
+.dcard{
+flex:1;
+padding:20px;
+border-radius:10px;
+color:white;
+text-align:center;
+}
+.total{background:#1e90ff}
+.borrow{background:#ff4757}
+.free{background:#2ed573}
+
 /* TABLE */
 table{width:100%;border-collapse:collapse}
 th,td{border:1px solid #ccc;padding:8px;text-align:center}
+
+/* STATUS */
+.selected-row{background:#2ed573;color:white}
+.borrowed-row{background:#ff6b6b;color:white}
+.disabled-btn{background:#aaa !important;cursor:not-allowed}
+
+/* SCAN */
+#reader,#reader-return{width:300px;margin-top:10px}
+
+/* COMMENT */
+textarea{
+width:100%;
+height:200px;
+font-size:16px;
+padding:10px;
+}
 </style>
 </head>
 
@@ -60,20 +86,20 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
 <!-- SIDEBAR -->
 <div class="sidebar">
-<h2>JIGシステム</h2>
+<h2><i class="fa-solid fa-toolbox"></i> JIGシステム</h2>
 
 <div class="menu-title">Dashboard</div>
-<button onclick="show('home')">ホーム</button>
-<button onclick="show('borrow')">貸出</button>
-<button onclick="show('return')">返却</button>
-<button onclick="show('reserve')">予約</button>
+<button onclick="show('home')"><i class="fa-solid fa-house"></i> ホーム</button>
+<button onclick="show('borrow')"><i class="fa-solid fa-hand"></i> 貸出</button>
+<button onclick="show('return')"><i class="fa-solid fa-qrcode"></i> 返却</button>
+<button onclick="show('reserve')"><i class="fa-solid fa-calendar"></i> 予約</button>
 
 <div class="menu-title">Monitor</div>
-<button onclick="show('logs')">ログ</button>
-<button onclick="show('comment')">コメント</button>
+<button onclick="show('logs')"><i class="fa-solid fa-list"></i> ログ</button>
+<button onclick="show('comment')"><i class="fa-solid fa-comments"></i> コメント</button>
 
 <div class="menu-title">Admin</div>
-<button onclick="show('admin')">管理</button>
+<button onclick="show('admin')"><i class="fa-solid fa-gear"></i> 管理</button>
 </div>
 
 <!-- CONTENT -->
@@ -81,40 +107,58 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
 <!-- HOME -->
 <div id="home" class="card">
-<h2>{{username}} さん、ようこそ</h2>
-<p>JIG管理システムへようこそ</p>
+<h2><i class="fa-solid fa-user"></i> {{username}} さん、ようこそ</h2>
+
+<div class="dashboard">
+<div class="dcard total">総数<br><span id="total">0</span></div>
+<div class="dcard borrow">使用中<br><span id="using">0</span></div>
+<div class="dcard free">空き<br><span id="free">0</span></div>
+</div>
 </div>
 
 <!-- BORROW -->
 <div id="borrow" class="card" style="display:none">
-<h3>JIG貸出</h3>
+<h3><i class="fa-solid fa-hand"></i> JIG貸出</h3>
+
+<button onclick="startScan()">
+<i class="fa-solid fa-camera"></i> Scan
+</button>
+
+<div id="reader"></div>
 
 <table>
 <tr><th>JIG</th><th>画像</th><th>操作</th></tr>
 <tbody id="tb"></tbody>
 </table>
 
+<h4>選択中:</h4>
+<div id="selectedList"></div>
+
 <br>
-<button onclick="confirmBorrow()">確定</button>
+<button onclick="confirmBorrow()">
+<i class="fa-solid fa-check"></i> 確定
+</button>
 
 <h4>QRコード</h4>
 <canvas id="qr"></canvas>
-
-<br>
-<button onclick="saveQR()">QR保存</button>
 </div>
 
 <!-- RETURN -->
 <div id="return" class="card" style="display:none">
-<h3>QRをスキャンして返却</h3>
-<p>スマホでQRを読み取ってください</p>
+<h3><i class="fa-solid fa-camera"></i> QRスキャンして返却</h3>
+
+<button onclick="startReturnScan()">
+<i class="fa-solid fa-camera"></i> Scan Return
+</button>
+
+<div id="reader-return"></div>
 </div>
 
 <!-- RESERVE -->
 <div id="reserve" class="card" style="display:none">
 <h3>予約</h3>
 <input id="resJig" placeholder="JIG名">
-<button onclick="reserve()">予約</button>
+<button>予約</button>
 </div>
 
 <!-- LOG -->
@@ -126,10 +170,7 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 <!-- COMMENT -->
 <div id="comment" class="card" style="display:none">
 <h3>コメント</h3>
-<textarea id="cmt"></textarea>
-<br>
-<button onclick="addComment()">送信</button>
-<div id="cmtList"></div>
+<textarea></textarea>
 </div>
 
 <!-- ADMIN -->
@@ -138,9 +179,7 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
 <input id="name" placeholder="JIG名">
 <input id="img" placeholder="画像URL">
-<button onclick="addJig()">追加 / 更新</button>
-
-<hr>
+<button onclick="addJig()">追加</button>
 
 <div id="adminList"></div>
 </div>
@@ -151,8 +190,9 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
 let user=new URLSearchParams(location.search).get("user")
 let selected=[]
+let statusData={}
 
-// NAV
+// UI
 function show(id){
 ["home","borrow","return","reserve","logs","comment","admin"].forEach(x=>{
 document.getElementById(x).style.display="none"
@@ -160,10 +200,27 @@ document.getElementById(x).style.display="none"
 document.getElementById(id).style.display="block"
 }
 
+// DASHBOARD
+async function loadDashboard(){
+let jigs=await (await fetch("/jigs")).json()
+statusData=await (await fetch("/jig-status")).json()
+
+let using=0
+jigs.forEach(j=>{
+if(statusData[j.name]=="BORROW") using++
+})
+
+document.getElementById("total").innerText=jigs.length
+document.getElementById("using").innerText=using
+document.getElementById("free").innerText=jigs.length-using
+}
+setInterval(loadDashboard,3000)
+loadDashboard()
+
 // LOAD JIG
 async function loadJigs(){
-let res=await fetch("/jigs")
-let data=await res.json()
+let data=await (await fetch("/jigs")).json()
+statusData=await (await fetch("/jig-status")).json()
 
 let tb=document.getElementById("tb")
 let admin=document.getElementById("adminList")
@@ -173,32 +230,66 @@ admin.innerHTML=""
 
 data.forEach(j=>{
 
-// Borrow table
+let isBorrowed=statusData[j.name]=="BORROW"
+
 let tr=document.createElement("tr")
+tr.id="row-"+j.name
+
+if(isBorrowed) tr.classList.add("borrowed-row")
+
 tr.innerHTML=`
 <td>${j.name}</td>
 <td><img src="${j.image}" width="80"></td>
-<td><button onclick="selectJig('${j.name}')">選択</button></td>
+<td>
+<button onclick="selectJig('${j.name}')" 
+${isBorrowed?"disabled class='disabled-btn'":""}>
+<i class="fa-solid fa-check"></i>
+</button>
+</td>
 `
 tb.appendChild(tr)
 
-// Admin list
 let d=document.createElement("div")
-d.innerHTML=`
-${j.name}
-<button onclick="deleteJig('${j.name}')">削除</button>
-`
+d.innerHTML=`${j.name}`
 admin.appendChild(d)
 
 })
 }
 
+// SELECT
 function selectJig(j){
-if(!selected.includes(j)) selected.push(j)
-alert(j+" 選択済み")
+if(statusData[j]=="BORROW") return
+
+let row=document.getElementById("row-"+j)
+
+if(selected.includes(j)){
+selected=selected.filter(x=>x!==j)
+row.classList.remove("selected-row")
+}else{
+selected.push(j)
+row.classList.add("selected-row")
 }
 
-// BORROW
+document.getElementById("selectedList").innerHTML=selected.join("<br>")
+}
+
+// SCAN
+function startScan(){
+const scanner=new Html5Qrcode("reader")
+
+scanner.start({facingMode:"environment"},{fps:10},(decoded)=>{
+if(statusData[decoded]=="BORROW"){
+alert("使用中: "+decoded)
+return
+}
+if(!selected.includes(decoded)){
+selected.push(decoded)
+selectJig(decoded)
+}
+})
+}
+
+// CONFIRM
 async function confirmBorrow(){
 for(let j of selected){
 await fetch("/borrow",{
@@ -207,21 +298,26 @@ headers:{'Content-Type':'application/json'},
 body:JSON.stringify({jig_name:j,user:user})
 })
 }
-
-let url=location.origin+"/return-page?jigs="+selected.join(",")
-QRCode.toCanvas(document.getElementById("qr"),url)
+alert("完了")
+loadJigs()
 }
 
-// SAVE QR
-function saveQR(){
-let canvas=document.getElementById("qr")
-let link=document.createElement("a")
-link.download="jig_qr.png"
-link.href=canvas.toDataURL()
-link.click()
+// RETURN
+function startReturnScan(){
+const scanner=new Html5Qrcode("reader-return")
+
+scanner.start({facingMode:"environment"},{fps:10},async(decoded)=>{
+await fetch("/return",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:decoded,user:user})
+})
+alert("返却: "+decoded)
+loadJigs()
+})
 }
 
-// ADMIN ADD
+// ADMIN
 async function addJig(){
 let name=document.getElementById("name").value
 let img=document.getElementById("img").value
@@ -230,17 +326,6 @@ await fetch("/add-jig",{
 method:"POST",
 headers:{'Content-Type':'application/json'},
 body:JSON.stringify({jig_name:name,image:img})
-})
-
-loadJigs()
-}
-
-// DELETE
-async function deleteJig(name){
-await fetch("/delete-jig",{
-method:"POST",
-headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:name})
 })
 
 loadJigs()
