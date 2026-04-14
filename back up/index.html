@@ -3,7 +3,6 @@
 <head>
 <title>JIG管理システム</title>
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
 <style>
@@ -32,10 +31,8 @@ color:white;
 border:none;
 cursor:pointer;
 border-radius:5px;
-text-align:left;
 }
 
-.sidebar button i{margin-right:8px}
 .sidebar button:hover{background:#747d8c}
 
 /* CONTENT */
@@ -53,37 +50,9 @@ margin-bottom:15px;
 border-radius:10px;
 }
 
-/* DASHBOARD CARDS */
-.dashboard{
-display:flex;
-gap:15px;
-margin-top:15px;
-}
-
-.dcard{
-flex:1;
-padding:20px;
-border-radius:10px;
-color:white;
-font-size:18px;
-text-align:center;
-}
-
-.total{background:#1e90ff}
-.borrow{background:#ff4757}
-.free{background:#2ed573}
-
 /* TABLE */
 table{width:100%;border-collapse:collapse}
 th,td{border:1px solid #ccc;padding:8px;text-align:center}
-
-/* COMMENT */
-textarea{
-width:100%;
-height:200px;
-font-size:16px;
-padding:10px;
-}
 </style>
 </head>
 
@@ -91,20 +60,20 @@ padding:10px;
 
 <!-- SIDEBAR -->
 <div class="sidebar">
-<h2><i class="fa-solid fa-toolbox"></i> JIGシステム</h2>
+<h2>JIGシステム</h2>
 
 <div class="menu-title">Dashboard</div>
-<button onclick="show('home')"><i class="fa-solid fa-house"></i> ホーム</button>
-<button onclick="show('borrow')"><i class="fa-solid fa-hand"></i> 貸出</button>
-<button onclick="show('return')"><i class="fa-solid fa-qrcode"></i> 返却</button>
-<button onclick="show('reserve')"><i class="fa-solid fa-calendar"></i> 予約</button>
+<button onclick="show('home')">ホーム</button>
+<button onclick="show('borrow')">貸出</button>
+<button onclick="show('return')">返却</button>
+<button onclick="show('reserve')">予約</button>
 
 <div class="menu-title">Monitor</div>
-<button onclick="show('logs')"><i class="fa-solid fa-list"></i> ログ</button>
-<button onclick="show('comment')"><i class="fa-solid fa-comments"></i> コメント</button>
+<button onclick="show('logs')">ログ</button>
+<button onclick="show('comment')">コメント</button>
 
 <div class="menu-title">Admin</div>
-<button onclick="show('admin')"><i class="fa-solid fa-gear"></i> 管理</button>
+<button onclick="show('admin')">管理</button>
 </div>
 
 <!-- CONTENT -->
@@ -112,35 +81,13 @@ padding:10px;
 
 <!-- HOME -->
 <div id="home" class="card">
-<h2><i class="fa-solid fa-user"></i> {{username}} さん、ようこそ</h2>
+<h2>{{username}} さん、ようこそ</h2>
 <p>JIG管理システムへようこそ</p>
-
-<!-- DASHBOARD -->
-<div class="dashboard">
-<div class="dcard total">
-<i class="fa-solid fa-layer-group"></i><br>
-総数<br>
-<span id="total">0</span>
-</div>
-
-<div class="dcard borrow">
-<i class="fa-solid fa-hand"></i><br>
-使用中<br>
-<span id="using">0</span>
-</div>
-
-<div class="dcard free">
-<i class="fa-solid fa-check"></i><br>
-空き<br>
-<span id="free">0</span>
-</div>
-</div>
-
 </div>
 
 <!-- BORROW -->
 <div id="borrow" class="card" style="display:none">
-<h3><i class="fa-solid fa-hand"></i> JIG貸出</h3>
+<h3>JIG貸出</h3>
 
 <table>
 <tr><th>JIG</th><th>画像</th><th>操作</th></tr>
@@ -148,63 +95,50 @@ padding:10px;
 </table>
 
 <br>
-<button onclick="confirmBorrow()">
-<i class="fa-solid fa-check"></i> 確定
-</button>
+<button onclick="confirmBorrow()">確定</button>
 
-<h4><i class="fa-solid fa-qrcode"></i> QRコード</h4>
+<h4>QRコード</h4>
 <canvas id="qr"></canvas>
 
 <br>
-<button onclick="saveQR()">
-<i class="fa-solid fa-download"></i> QR保存
-</button>
+<button onclick="saveQR()">QR保存</button>
 </div>
 
 <!-- RETURN -->
 <div id="return" class="card" style="display:none">
-<h3><i class="fa-solid fa-camera"></i> QRスキャンして返却</h3>
+<h3>QRをスキャンして返却</h3>
 <p>スマホでQRを読み取ってください</p>
 </div>
 
 <!-- RESERVE -->
 <div id="reserve" class="card" style="display:none">
-<h3><i class="fa-solid fa-calendar-check"></i> 予約</h3>
+<h3>予約</h3>
 <input id="resJig" placeholder="JIG名">
-<button onclick="reserve()">
-<i class="fa-solid fa-plus"></i> 予約
-</button>
+<button onclick="reserve()">予約</button>
 </div>
 
 <!-- LOG -->
 <div id="logs" class="card" style="display:none">
-<h3><i class="fa-solid fa-list"></i> ログ</h3>
+<h3>ログ</h3>
 <div id="logList"></div>
 </div>
 
 <!-- COMMENT -->
 <div id="comment" class="card" style="display:none">
-<h3><i class="fa-solid fa-comments"></i> コメント</h3>
-
-<textarea id="cmt" placeholder="コメント入力..."></textarea>
+<h3>コメント</h3>
+<textarea id="cmt"></textarea>
 <br>
-<button onclick="addComment()">
-<i class="fa-solid fa-paper-plane"></i> 送信
-</button>
-
+<button onclick="addComment()">送信</button>
 <div id="cmtList"></div>
 </div>
 
 <!-- ADMIN -->
 <div id="admin" class="card" style="display:none">
-<h3><i class="fa-solid fa-gear"></i> JIG管理</h3>
+<h3>JIG管理</h3>
 
 <input id="name" placeholder="JIG名">
 <input id="img" placeholder="画像URL">
-
-<button onclick="addJig()">
-<i class="fa-solid fa-plus"></i> 追加 / 更新
-</button>
+<button onclick="addJig()">追加 / 更新</button>
 
 <hr>
 
@@ -218,35 +152,13 @@ padding:10px;
 let user=new URLSearchParams(location.search).get("user")
 let selected=[]
 
+// NAV
 function show(id){
 ["home","borrow","return","reserve","logs","comment","admin"].forEach(x=>{
 document.getElementById(x).style.display="none"
 })
 document.getElementById(id).style.display="block"
 }
-
-// DASHBOARD DATA
-async function loadDashboard(){
-let jigsRes=await fetch("/jigs")
-let jigs=await jigsRes.json()
-
-let statusRes=await fetch("/jig-status")
-let status=await statusRes.json()
-
-let total=jigs.length
-let using=0
-
-jigs.forEach(j=>{
-if(status[j.name]=="BORROW") using++
-})
-
-document.getElementById("total").innerText=total
-document.getElementById("using").innerText=using
-document.getElementById("free").innerText=total-using
-}
-
-setInterval(loadDashboard,3000)
-loadDashboard()
 
 // LOAD JIG
 async function loadJigs(){
@@ -261,22 +173,20 @@ admin.innerHTML=""
 
 data.forEach(j=>{
 
+// Borrow table
 let tr=document.createElement("tr")
 tr.innerHTML=`
 <td>${j.name}</td>
 <td><img src="${j.image}" width="80"></td>
-<td><button onclick="selectJig('${j.name}')">
-<i class="fa-solid fa-check"></i>
-</button></td>
+<td><button onclick="selectJig('${j.name}')">選択</button></td>
 `
 tb.appendChild(tr)
 
+// Admin list
 let d=document.createElement("div")
 d.innerHTML=`
 ${j.name}
-<button onclick="deleteJig('${j.name}')">
-<i class="fa-solid fa-trash"></i>
-</button>
+<button onclick="deleteJig('${j.name}')">削除</button>
 `
 admin.appendChild(d)
 
@@ -288,6 +198,7 @@ if(!selected.includes(j)) selected.push(j)
 alert(j+" 選択済み")
 }
 
+// BORROW
 async function confirmBorrow(){
 for(let j of selected){
 await fetch("/borrow",{
@@ -301,6 +212,7 @@ let url=location.origin+"/return-page?jigs="+selected.join(",")
 QRCode.toCanvas(document.getElementById("qr"),url)
 }
 
+// SAVE QR
 function saveQR(){
 let canvas=document.getElementById("qr")
 let link=document.createElement("a")
@@ -309,6 +221,7 @@ link.href=canvas.toDataURL()
 link.click()
 }
 
+// ADMIN ADD
 async function addJig(){
 let name=document.getElementById("name").value
 let img=document.getElementById("img").value
@@ -322,6 +235,7 @@ body:JSON.stringify({jig_name:name,image:img})
 loadJigs()
 }
 
+// DELETE
 async function deleteJig(name){
 await fetch("/delete-jig",{
 method:"POST",
