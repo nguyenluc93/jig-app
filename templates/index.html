@@ -47,6 +47,20 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 .disabled-btn{background:#aaa !important;cursor:not-allowed}
 
 #reader,#reader-return{width:300px;margin-top:10px}
+
+/* COMMENT */
+textarea{
+width:100%;
+height:300px; /* gấp đôi */
+padding:10px;
+font-size:16px;
+}
+
+input{
+width:100%;
+padding:10px;
+margin-bottom:10px;
+}
 </style>
 </head>
 
@@ -80,6 +94,11 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 <div class="dcard borrow">使用中<br><span id="using">0</span></div>
 <div class="dcard free">空き<br><span id="free">0</span></div>
 </div>
+
+<!-- NEW: INFORMATION -->
+<h3>Information</h3>
+<div id="infoBox"></div>
+
 </div>
 
 <!-- BORROW -->
@@ -109,11 +128,6 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 <div id="reader-return"></div>
 </div>
 
-<!-- RESERVE -->
-<div id="reserve" class="card" style="display:none">
-<h3>予約</h3>
-</div>
-
 <!-- LOG -->
 <div id="logs" class="card" style="display:none">
 <h3>履歴ログ</h3>
@@ -133,7 +147,13 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 <!-- COMMENT -->
 <div id="comment" class="card" style="display:none">
 <h3>コメント</h3>
-<textarea></textarea>
+
+<input id="cmtJig" placeholder="対象JIG">
+
+<textarea id="cmtText" placeholder="コメント入力"></textarea>
+
+<button onclick="sendComment()">送信</button>
+
 </div>
 
 <!-- ADMIN -->
@@ -153,7 +173,7 @@ let user=new URLSearchParams(location.search).get("user")
 let selected=[]
 let statusData={}
 
-// UI
+// NAV
 function show(id){
 ["home","borrow","return","reserve","logs","comment","admin"].forEach(x=>{
 document.getElementById(x).style.display="none"
@@ -179,6 +199,24 @@ document.getElementById("free").innerText=jigs.length-using
 }
 setInterval(loadDashboard,3000)
 loadDashboard()
+
+// LOAD INFO (COMMENT PIN)
+async function loadInfo(){
+let data=await (await fetch("/comments")).json()
+
+let box=document.getElementById("infoBox")
+box.innerHTML=""
+
+data.forEach(c=>{
+box.innerHTML+=`
+<div style="background:#fff3cd;padding:10px;margin:5px;border-radius:5px">
+<b>${c.jig}</b> : ${c.text}
+</div>
+`
+})
+}
+setInterval(loadInfo,3000)
+loadInfo()
 
 // LOAD JIG
 async function loadJigs(){
@@ -229,6 +267,15 @@ row.classList.add("selected-row")
 document.getElementById("selectedList").innerHTML=selected.join("<br>")
 }
 
+// SCAN BORROW
+function startScan(){
+const scanner=new Html5Qrcode("reader")
+
+scanner.start({facingMode:"environment"},{fps:10},(decoded)=>{
+selectJig(decoded)
+})
+}
+
 // BORROW
 async function confirmBorrow(){
 for(let j of selected){
@@ -256,6 +303,23 @@ body:JSON.stringify({jig_name:decoded,user:user})
 alert("返却: "+decoded)
 loadJigs()
 })
+}
+
+// COMMENT SEND
+async function sendComment(){
+let jig=document.getElementById("cmtJig").value
+let text=document.getElementById("cmtText").value
+
+await fetch("/comment",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig:jig,text:text})
+})
+
+alert("送信完了")
+
+document.getElementById("cmtText").value=""
+loadInfo()
 }
 
 // LOG LOAD

@@ -12,50 +12,27 @@ body{margin:0;display:flex;font-family:Arial}
 
 /* SIDEBAR */
 .sidebar{
-width:250px;
-background:#2f3542;
-color:white;
-padding:15px;
-height:100vh;
+width:250px;background:#2f3542;color:white;padding:15px;height:100vh;
 }
 
 .menu-title{margin-top:15px;font-weight:bold;}
 
 .sidebar button{
-width:100%;
-margin:5px 0;
-padding:10px;
-background:#57606f;
-color:white;
-border:none;
-cursor:pointer;
-border-radius:5px;
-text-align:left;
+width:100%;margin:5px 0;padding:10px;background:#57606f;color:white;
+border:none;border-radius:5px;text-align:left;cursor:pointer;
 }
 
-.sidebar button i{margin-right:8px}
 .sidebar button:hover{background:#747d8c}
 
 /* CONTENT */
 .content{flex:1;padding:20px;background:#f1f2f6;}
 
 /* CARD */
-.card{
-background:white;
-padding:15px;
-margin-bottom:15px;
-border-radius:10px;
-}
+.card{background:white;padding:15px;margin-bottom:15px;border-radius:10px;}
 
 /* DASHBOARD */
 .dashboard{display:flex;gap:15px;margin-top:15px;}
-.dcard{
-flex:1;
-padding:20px;
-border-radius:10px;
-color:white;
-text-align:center;
-}
+.dcard{flex:1;padding:20px;border-radius:10px;color:white;text-align:center;}
 .total{background:#1e90ff}
 .borrow{background:#ff4757}
 .free{background:#2ed573}
@@ -69,45 +46,34 @@ th,td{border:1px solid #ccc;padding:8px;text-align:center}
 .borrowed-row{background:#ff6b6b;color:white}
 .disabled-btn{background:#aaa !important;cursor:not-allowed}
 
-/* SCAN */
 #reader,#reader-return{width:300px;margin-top:10px}
-
-/* COMMENT */
-textarea{
-width:100%;
-height:200px;
-font-size:16px;
-padding:10px;
-}
 </style>
 </head>
 
 <body>
 
-<!-- SIDEBAR -->
 <div class="sidebar">
 <h2><i class="fa-solid fa-toolbox"></i> JIGシステム</h2>
 
 <div class="menu-title">Dashboard</div>
-<button onclick="show('home')"><i class="fa-solid fa-house"></i> ホーム</button>
-<button onclick="show('borrow')"><i class="fa-solid fa-hand"></i> 貸出</button>
-<button onclick="show('return')"><i class="fa-solid fa-qrcode"></i> 返却</button>
-<button onclick="show('reserve')"><i class="fa-solid fa-calendar"></i> 予約</button>
+<button onclick="show('home')">ホーム</button>
+<button onclick="show('borrow')">貸出</button>
+<button onclick="show('return')">返却</button>
+<button onclick="show('reserve')">予約</button>
 
 <div class="menu-title">Monitor</div>
-<button onclick="show('logs')"><i class="fa-solid fa-list"></i> ログ</button>
-<button onclick="show('comment')"><i class="fa-solid fa-comments"></i> コメント</button>
+<button onclick="show('logs')">ログ</button>
+<button onclick="show('comment')">コメント</button>
 
 <div class="menu-title">Admin</div>
-<button onclick="show('admin')"><i class="fa-solid fa-gear"></i> 管理</button>
+<button onclick="show('admin')">管理</button>
 </div>
 
-<!-- CONTENT -->
 <div class="content">
 
 <!-- HOME -->
 <div id="home" class="card">
-<h2><i class="fa-solid fa-user"></i> {{username}} さん、ようこそ</h2>
+<h2>{{username}} さん</h2>
 
 <div class="dashboard">
 <div class="dcard total">総数<br><span id="total">0</span></div>
@@ -118,12 +84,9 @@ padding:10px;
 
 <!-- BORROW -->
 <div id="borrow" class="card" style="display:none">
-<h3><i class="fa-solid fa-hand"></i> JIG貸出</h3>
+<h3>JIG貸出</h3>
 
-<button onclick="startScan()">
-<i class="fa-solid fa-camera"></i> Scan
-</button>
-
+<button onclick="startScan()">Scan</button>
 <div id="reader"></div>
 
 <table>
@@ -134,37 +97,37 @@ padding:10px;
 <h4>選択中:</h4>
 <div id="selectedList"></div>
 
-<br>
-<button onclick="confirmBorrow()">
-<i class="fa-solid fa-check"></i> 確定
-</button>
+<button onclick="confirmBorrow()">確定</button>
 
-<h4>QRコード</h4>
 <canvas id="qr"></canvas>
 </div>
 
 <!-- RETURN -->
 <div id="return" class="card" style="display:none">
-<h3><i class="fa-solid fa-camera"></i> QRスキャンして返却</h3>
-
-<button onclick="startReturnScan()">
-<i class="fa-solid fa-camera"></i> Scan Return
-</button>
-
+<h3>返却</h3>
+<button onclick="startReturnScan()">Scan Return</button>
 <div id="reader-return"></div>
 </div>
 
 <!-- RESERVE -->
 <div id="reserve" class="card" style="display:none">
 <h3>予約</h3>
-<input id="resJig" placeholder="JIG名">
-<button>予約</button>
 </div>
 
 <!-- LOG -->
 <div id="logs" class="card" style="display:none">
-<h3>ログ</h3>
-<div id="logList"></div>
+<h3>履歴ログ</h3>
+
+<table>
+<tr>
+<th>JIG</th>
+<th>ユーザー</th>
+<th>状態</th>
+<th>時間</th>
+</tr>
+<tbody id="logTable"></tbody>
+</table>
+
 </div>
 
 <!-- COMMENT -->
@@ -176,11 +139,9 @@ padding:10px;
 <!-- ADMIN -->
 <div id="admin" class="card" style="display:none">
 <h3>JIG管理</h3>
-
 <input id="name" placeholder="JIG名">
 <input id="img" placeholder="画像URL">
 <button onclick="addJig()">追加</button>
-
 <div id="adminList"></div>
 </div>
 
@@ -198,6 +159,8 @@ function show(id){
 document.getElementById(x).style.display="none"
 })
 document.getElementById(id).style.display="block"
+
+if(id==="logs") loadLogs()
 }
 
 // DASHBOARD
@@ -223,10 +186,7 @@ let data=await (await fetch("/jigs")).json()
 statusData=await (await fetch("/jig-status")).json()
 
 let tb=document.getElementById("tb")
-let admin=document.getElementById("adminList")
-
 tb.innerHTML=""
-admin.innerHTML=""
 
 data.forEach(j=>{
 
@@ -243,16 +203,12 @@ tr.innerHTML=`
 <td>
 <button onclick="selectJig('${j.name}')" 
 ${isBorrowed?"disabled class='disabled-btn'":""}>
-<i class="fa-solid fa-check"></i>
+選択
 </button>
 </td>
 `
+
 tb.appendChild(tr)
-
-let d=document.createElement("div")
-d.innerHTML=`${j.name}`
-admin.appendChild(d)
-
 })
 }
 
@@ -273,23 +229,7 @@ row.classList.add("selected-row")
 document.getElementById("selectedList").innerHTML=selected.join("<br>")
 }
 
-// SCAN
-function startScan(){
-const scanner=new Html5Qrcode("reader")
-
-scanner.start({facingMode:"environment"},{fps:10},(decoded)=>{
-if(statusData[decoded]=="BORROW"){
-alert("使用中: "+decoded)
-return
-}
-if(!selected.includes(decoded)){
-selected.push(decoded)
-selectJig(decoded)
-}
-})
-}
-
-// CONFIRM
+// BORROW
 async function confirmBorrow(){
 for(let j of selected){
 await fetch("/borrow",{
@@ -299,6 +239,7 @@ body:JSON.stringify({jig_name:j,user:user})
 })
 }
 alert("完了")
+selected=[]
 loadJigs()
 }
 
@@ -314,6 +255,26 @@ body:JSON.stringify({jig_name:decoded,user:user})
 })
 alert("返却: "+decoded)
 loadJigs()
+})
+}
+
+// LOG LOAD
+async function loadLogs(){
+let res=await fetch("/logs")
+let data=await res.json()
+
+let tb=document.getElementById("logTable")
+tb.innerHTML=""
+
+data.forEach(l=>{
+let tr=document.createElement("tr")
+tr.innerHTML=`
+<td>${l.jig_name}</td>
+<td>${l.user}</td>
+<td>${l.status}</td>
+<td>${l.time}</td>
+`
+tb.appendChild(tr)
 })
 }
 
