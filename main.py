@@ -1,145 +1,152 @@
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, FileResponse
+import os
 import psycopg2
-import uuid, qrcode, os
-from datetime import datetime
+from fastapi import FastAPI
+from pydantic import BaseModel
+from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
+# =========================
+# ENV
+# =========================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-conn = psycopg2.connect(DATABASE_URL)
-cursor = conn.cursor()
 
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+# =========================
+# DB CONNECTION
+# =========================
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
-# ===== INIT DB =====
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS jigs (
-    id TEXT PRIMARY KEY,
-    status TEXT,
-    current_tx TEXT
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT,
-    jig_id TEXT,
-    user_name TEXT,
-    borrow_time TEXT,
-    expected_return TEXT,
-    return_time TEXT,
-    returned_by TEXT
-)
-""")
+# =========================
+# MODEL
+# =========================
+class BorrowRequest(BaseModel):
+    user_name: str
+    user_email: str
+    jig_name: str
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reservations (
-    id TEXT,
-    jig_id TEXT,
-    user_name TEXT,
-    time TEXT
-)
-""")
 
-conn.commit()
+class ReturnRequest(BaseModel):
+    jig_name: str
 
-# INIT DATA
-for jig in ["T-1-2-1","T-1-2-2","T-1-2-3"]:
-    cursor.execute("INSERT INTO jigs VALUES (%s,'AVAILABLE',NULL) ON CONFLICT DO NOTHING", (jig,))
-conn.commit()
 
-# ===== UI =====
+# =========================
+# INIT TABLE
+# =========================
+@app.on_event("startup")
+def startup():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS jig_log (
+        id SERIAL PRIMARY KEY,
+        jig_name TEXT,
+        user_name TEXT,
+        user_email TEXT,
+        status TEXT,
+        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+# =========================
+# HOME PAGE
+# =========================
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return """
-    <html>
-    <head><title>JIG管理</title></head>
-    <body>
-    <h1>JIG管理システム</h1>
-    <a href="/dashboard">Dashboard</a>
-    </body>
-    </html>
-    """
+    with open("templates/index.html", encoding="utf-8") as f:
+        return f.read()
 
-# ===== DASHBOARD =====
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
-    cursor.execute("SELECT * FROM jigs")
-    data = cursor.fetchall()
 
-    html = "<h2>JIG一覧</h2><table border=1><tr><th>JIG</th><th>Status</th><th>Action</th></tr>"
+# =========================
+# BORROW JIG (có check trùng)
+# =========================
+@app.post("/borrow")
+def borrow_jig(data: BorrowRequest):
+    conn = get_conn()
+    cur = conn.cursor()
 
-    for jig, status, tx in data:
-        if status == "AVAILABLE":
-            action = f"<a href='/borrow_form?jig={jig}'>貸出</a>"
-        else:
-            action = "使用中"
+    # 🔥 check JIG đang được mượn chưa
+    cur.execute("""
+    SELECT * FROM jig_log
+    WHERE jig_name=%s AND status='BORROW'
+    ORDER BY time DESC LIMIT 1
+    """, (data.jig_name,))
 
-        html += f"<tr><td>{jig}</td><td>{status}</td><td>{action}</td></tr>"
+    active = cur.fetchone()
 
-    html += "</table>"
-    return html
+    if active:
+        cur.close()
+        conn.close()
+        return {"error": "JIG đang được sử dụng!"}
 
-# ===== BORROW FORM =====
-@app.get("/borrow_form", response_class=HTMLResponse)
-def borrow_form(jig: str):
-    return f"""
-    <h2>{jig} 貸出</h2>
-    <form action="/borrow" method="post">
-    使用者: <input name="user"><br>
-    <input type="hidden" name="jig_id" value="{jig}">
-    <button type="submit">OK</button>
-    </form>
-    """
-
-# ===== BORROW =====
-@app.post("/borrow", response_class=HTMLResponse)
-def borrow(jig_id: str = Form(...), user: str = Form(...)):
-    tx_id = str(uuid.uuid4())
-
-    cursor.execute("UPDATE jigs SET status='IN_USE', current_tx=%s WHERE id=%s", (tx_id, jig_id))
-
-    cursor.execute("""
-    INSERT INTO transactions VALUES (%s,%s,%s,%s,%s,%s,%s)
-    """, (tx_id, jig_id, user, datetime.now().isoformat(), "", None, None))
+    # insert borrow
+    cur.execute("""
+    INSERT INTO jig_log (jig_name, user_name, user_email, status)
+    VALUES (%s, %s, %s, %s)
+    """, (data.jig_name, data.user_name, data.user_email, "BORROW"))
 
     conn.commit()
+    cur.close()
+    conn.close()
 
-    url = f"{BASE_URL}/return?tx={tx_id}"
-    img = qrcode.make(url)
-    path = f"{tx_id}.png"
-    img.save(path)
+    return {"message": "Borrow success"}
 
-    return f"<h2>QR</h2><img src='/qr/{tx_id}'>"
 
-# ===== QR =====
-@app.get("/qr/{tx_id}")
-def qr(tx_id: str):
-    return FileResponse(f"{tx_id}.png")
+# =========================
+# RETURN JIG
+# =========================
+@app.post("/return")
+def return_jig(data: ReturnRequest):
+    conn = get_conn()
+    cur = conn.cursor()
 
-# ===== RETURN =====
-@app.get("/return", response_class=HTMLResponse)
-def return_page(tx: str):
-    return f"""
-    <form action="/confirm_return" method="post">
-    <input type="hidden" name="tx" value="{tx}">
-    返却者: <input name="returned_by">
-    <button type="submit">返却</button>
-    </form>
-    """
+    cur.execute("""
+    INSERT INTO jig_log (jig_name, status)
+    VALUES (%s, %s)
+    """, (data.jig_name, "RETURN"))
 
-# ===== CONFIRM RETURN =====
-@app.post("/confirm_return", response_class=HTMLResponse)
-def confirm_return(tx: str = Form(...), returned_by: str = Form(...)):
-    cursor.execute("SELECT jig_id FROM transactions WHERE id=%s", (tx,))
-    jig_id = cursor.fetchone()[0]
-
-    cursor.execute("UPDATE transactions SET return_time=%s, returned_by=%s WHERE id=%s",
-                   (datetime.now().isoformat(), returned_by, tx))
-
-    cursor.execute("UPDATE jigs SET status='AVAILABLE', current_tx=NULL WHERE id=%s", (jig_id,))
     conn.commit()
+    cur.close()
+    conn.close()
 
-    return "返却完了"
+    return {"message": "Return success"}
+
+
+# =========================
+# GET LOGS
+# =========================
+@app.get("/logs")
+def get_logs():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT jig_name, user_name, status, time
+    FROM jig_log
+    ORDER BY time DESC
+    """)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    # format cho đẹp
+    result = []
+    for r in rows:
+        result.append({
+            "jig": r[0],
+            "user": r[1],
+            "status": r[2],
+            "time": str(r[3])
+        })
+
+    return result

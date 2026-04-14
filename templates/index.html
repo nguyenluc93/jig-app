@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JIG Management</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        h1 { color: #333; }
+        button { padding: 10px; margin: 5px; }
+        input { padding: 8px; margin: 5px; }
+    </style>
+</head>
+<body>
+
+<h1>JIG Management System</h1>
+
+<h2>Mượn JIG</h2>
+<input id="name" placeholder="Tên">
+<input id="email" placeholder="Email">
+<input id="jig" placeholder="JIG name">
+<button onclick="borrow()">Mượn</button>
+
+<h2>Trả JIG</h2>
+<input id="jig_return" placeholder="JIG name">
+<button onclick="returnJig()">Trả</button>
+
+<h2>Logs</h2>
+<button onclick="loadLogs()">Load</button>
+<ul id="logs"></ul>
+
+<script>
+async function borrow() {
+    await fetch('/borrow', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            user_name: document.getElementById('name').value,
+            user_email: document.getElementById('email').value,
+            jig_name: document.getElementById('jig').value
+        })
+    });
+    alert("Borrow OK");
+}
+
+async function returnJig() {
+    await fetch('/return', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            jig_name: document.getElementById('jig_return').value
+        })
+    });
+    alert("Return OK");
+}
+
+async function loadLogs() {
+    let res = await fetch('/logs');
+    let data = await res.json();
+
+    let ul = document.getElementById('logs');
+    ul.innerHTML = "";
+
+    data.forEach(row => {
+        let li = document.createElement('li');
+        li.innerText = row;
+        ul.appendChild(li);
+    });
+}
+setInterval(loadLogs, 3000);
+</script>
+
+</body>
+</html>
