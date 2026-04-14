@@ -19,6 +19,7 @@ def startup():
     conn = db_pool.getconn()
     cur = conn.cursor()
 
+    # JIG MASTER
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_master(
         id SERIAL PRIMARY KEY,
@@ -27,6 +28,7 @@ def startup():
     )
     """)
 
+    # JIG LOG (đầy đủ column)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_log(
         id SERIAL PRIMARY KEY,
@@ -36,6 +38,14 @@ def startup():
         status TEXT,
         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    """)
+
+    # FIX nếu thiếu column (QUAN TRỌNG)
+    cur.execute("""
+    ALTER TABLE jig_log ADD COLUMN IF NOT EXISTS borrow_user TEXT;
+    """)
+    cur.execute("""
+    ALTER TABLE jig_log ADD COLUMN IF NOT EXISTS return_user TEXT;
     """)
 
     conn.commit()
@@ -159,3 +169,28 @@ def return_jig(data: Return):
     release(conn)
 
     return {"msg": "返却完了"}
+
+# ================= STATUS =================
+@app.get("/jig-status")
+def jig_status():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT jig_name, status, time
+    FROM jig_log
+    ORDER BY time DESC
+    """)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    release(conn)
+
+    status_map = {}
+
+    for jig_name, status, time in rows:
+        if jig_name not in status_map:
+            status_map[jig_name] = status
+
+    return status_map
