@@ -19,6 +19,7 @@ def startup():
     conn = db_pool.getconn()
     cur = conn.cursor()
 
+    # JIG
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_master(
         id SERIAL PRIMARY KEY,
@@ -27,6 +28,7 @@ def startup():
     )
     """)
 
+    # LOG
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_log(
         id SERIAL PRIMARY KEY,
@@ -37,6 +39,7 @@ def startup():
     )
     """)
 
+    # COMMENT
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_comment(
         id SERIAL PRIMARY KEY,
@@ -252,8 +255,8 @@ def delete_comment(id: int = Form(...)):
     cur = conn.cursor()
 
     cur.execute("DELETE FROM jig_comment WHERE id=%s",(id,))
-    conn.commit()
 
+    conn.commit()
     cur.close()
     release(conn)
 
