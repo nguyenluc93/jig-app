@@ -1,27 +1,25 @@
 import os
 import psycopg2
 from psycopg2 import pool
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 app = FastAPI()
-
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 db_pool = None
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin123"
-
-# ================= START =================
+# ================= DB =================
 @app.on_event("startup")
 def startup():
     global db_pool
-    db_pool = pool.SimpleConnectionPool(1, 10, DATABASE_URL)
+    db_pool = pool.SimpleConnectionPool(1, 5, DATABASE_URL)
 
     conn = db_pool.getconn()
     cur = conn.cursor()
 
+    # JIG
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_master(
         id SERIAL PRIMARY KEY,
@@ -30,22 +28,23 @@ def startup():
     )
     """)
 
+    # LOG
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_log(
         id SERIAL PRIMARY KEY,
         jig_name TEXT,
-        borrow_user TEXT,
-        return_user TEXT,
+        user_name TEXT,
         status TEXT,
         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
+    # COMMENT
     cur.execute("""
     CREATE TABLE IF NOT EXISTS jig_comment(
         id SERIAL PRIMARY KEY,
-        jig TEXT,
-        text TEXT,
+        jig_name TEXT,
+        comment TEXT,
         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -65,28 +64,22 @@ def release(conn):
 def login():
     return """
     <h2>ログイン</h2>
-    <form method="post" action="/login">
-        <input name="username" placeholder="ユーザー名">
-        <input name="password" type="password" placeholder="パスワード">
-        <button>ログイン</button>
+    <form action="/login" method="post">
+    <input name="username">
+    <input name="password" type="password">
+    <button>ログイン</button>
     </form>
     """
 
 @app.post("/login")
 def login_post(username: str = Form(...), password: str = Form(...)):
-
-    if username == ADMIN_USER and password == ADMIN_PASS:
-        return RedirectResponse(f"/home?user={username}&role=admin", status_code=302)
-
-    return RedirectResponse(f"/home?user={username}&role=user", status_code=302)
+    return RedirectResponse(f"/home?user={username}", status_code=302)
 
 @app.get("/home", response_class=HTMLResponse)
-def home(user: str, role: str = "user"):
+def home(user: str):
     with open("templates/index.html", encoding="utf-8") as f:
         html = f.read()
-    html = html.replace("{{username}}", user)
-    html = html.replace("{{role}}", role)
-    return html
+    return html.replace("{{username}}", user)
 
 # ================= JIG =================
 class Jig(BaseModel):
@@ -101,13 +94,14 @@ def add_jig(data: Jig):
     cur.execute("""
     INSERT INTO jig_master(jig_name,image)
     VALUES(%s,%s)
-    ON CONFLICT (jig_name) DO UPDATE SET image=EXCLUDED.image
-    """, (data.jig_name, data.image))
+    ON CONFLICT (jig_name) DO UPDATE SET image=%s
+    """, (data.jig_name, data.image, data.image))
 
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok": True}
+
+    return {"msg": "ok"}
 
 @app.post("/delete-jig")
 def delete_jig(data: Jig):
@@ -119,7 +113,8 @@ def delete_jig(data: Jig):
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok": True}
+
+    return {"msg": "ok"}
 
 @app.get("/jigs")
 def get_jigs():
@@ -131,26 +126,28 @@ def get_jigs():
 
     cur.close()
     release(conn)
-    return [{"name":r[0],"image":r[1]} for r in rows]
+
+    return [{"name": r[0], "image": r[1]} for r in rows]
 
 # ================= STATUS =================
 @app.get("/jig-status")
-def status():
+def jig_status():
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
     SELECT DISTINCT ON (jig_name)
-        jig_name, status
+    jig_name,status
     FROM jig_log
-    ORDER BY jig_name, id DESC
+    ORDER BY jig_name,time DESC
     """)
 
     rows = cur.fetchall()
 
     cur.close()
     release(conn)
-    return {r[0]:r[1] for r in rows}
+
+    return {r[0]: r[1] for r in rows}
 
 # ================= BORROW =================
 class Borrow(BaseModel):
@@ -163,14 +160,15 @@ def borrow(data: Borrow):
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO jig_log(jig_name,borrow_user,status)
+    INSERT INTO jig_log(jig_name,user_name,status)
     VALUES(%s,%s,'BORROW')
-    """,(data.jig_name,data.user))
+    """, (data.jig_name, data.user))
 
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok":True}
+
+    return {"msg": "ok"}
 
 # ================= RETURN =================
 class Return(BaseModel):
@@ -183,60 +181,83 @@ def return_jig(data: Return):
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO jig_log(jig_name,return_user,status)
+    INSERT INTO jig_log(jig_name,user_name,status)
     VALUES(%s,%s,'RETURN')
-    """,(data.jig_name,data.user))
+    """, (data.jig_name, data.user))
 
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok":True}
+
+    return {"msg": "ok"}
+
+# ================= LOG =================
+@app.get("/logs")
+def logs():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT jig_name,user_name,status,time
+    FROM jig_log
+    ORDER BY time DESC
+    """)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    release(conn)
+
+    return [{"jig_name":r[0],"user":r[1],"status":r[2],"time":str(r[3])} for r in rows]
 
 # ================= COMMENT =================
 class Comment(BaseModel):
-    jig:str
-    text:str
+    jig: str
+    text: str
 
 @app.post("/comment")
 def add_comment(data: Comment):
-    conn=get_conn()
-    cur=conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO jig_comment(jig,text)
+    INSERT INTO jig_comment(jig_name,comment)
     VALUES(%s,%s)
-    """,(data.jig,data.text))
+    """, (data.jig, data.text))
 
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok":True}
+
+    return {"msg": "ok"}
 
 @app.get("/comments")
 def get_comments():
-    conn=get_conn()
-    cur=conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
     cur.execute("""
-    SELECT id,jig,text,time FROM jig_comment ORDER BY time DESC
+    SELECT id,jig_name,comment,time
+    FROM jig_comment
+    ORDER BY time DESC
     """)
 
-    rows=cur.fetchall()
+    rows = cur.fetchall()
 
     cur.close()
     release(conn)
 
     return [{"id":r[0],"jig":r[1],"text":r[2],"time":str(r[3])} for r in rows]
 
-# ================= DELETE COMMENT (ADMIN) =================
 @app.post("/delete-comment")
-def delete_comment(data: dict):
-    conn=get_conn()
-    cur=conn.cursor()
+def delete_comment(id: int = Form(...)):
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cur.execute("DELETE FROM jig_comment WHERE id=%s",(data["id"],))
+    cur.execute("DELETE FROM jig_comment WHERE id=%s",(id,))
 
     conn.commit()
     cur.close()
     release(conn)
-    return {"ok":True}
+
+    return {"msg":"deleted"}
