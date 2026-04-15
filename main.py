@@ -10,17 +10,15 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
-# ================= INIT DB =================
+# ================= INIT DB (SAFE - NO DROP) =================
 @app.on_event("startup")
 def startup():
     conn = get_conn()
     cur = conn.cursor()
 
-    # RESET USERS TABLE (fix chắc chắn)
-    cur.execute("DROP TABLE IF EXISTS users")
-
+    # USERS (SAFE)
     cur.execute("""
-    CREATE TABLE users(
+    CREATE TABLE IF NOT EXISTS users(
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT,
@@ -71,22 +69,21 @@ class UserCreate(BaseModel):
 
 @app.post("/create-user")
 def create_user(data: UserCreate):
+    conn = get_conn()
+    cur = conn.cursor()
     try:
-        conn = get_conn()
-        cur = conn.cursor()
-
         cur.execute("""
         INSERT INTO users(username,password,role)
         VALUES(%s,%s,%s)
         """, (data.username.strip(), data.password.strip(), data.role))
-
         conn.commit()
-        cur.close()
-        conn.close()
-
         return {"msg": "user created"}
     except Exception as e:
+        conn.rollback()
         return {"error": str(e)}
+    finally:
+        cur.close()
+        conn.close()
 
 def get_user_role(username):
     conn = get_conn()
@@ -95,7 +92,7 @@ def get_user_role(username):
     row = cur.fetchone()
     cur.close()
     conn.close()
-    return row[0] if row else "user"
+    return row[0] if row and row[0] else "user"
 
 def require_admin(username):
     if get_user_role(username) != "admin":
@@ -115,9 +112,6 @@ def login():
 
 @app.post("/login")
 def login_post(username: str = Form(...), password: str = Form(...)):
-    username = username.strip()
-    password = password.strip()
-
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT password FROM users WHERE username=%s", (username,))
