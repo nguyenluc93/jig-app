@@ -92,6 +92,16 @@ def create_user(data: UserCreate):
         cur.close()
         conn.close()
 
+@app.get("/debug-users")
+def debug_users():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT username,password,role FROM users")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
 def get_user_role(username):
     conn = get_conn()
     cur = conn.cursor()
