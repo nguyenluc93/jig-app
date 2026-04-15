@@ -7,7 +7,6 @@ from pydantic import BaseModel
 app = FastAPI()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# ================= DB =================
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
@@ -17,9 +16,11 @@ def startup():
     conn = get_conn()
     cur = conn.cursor()
 
-    # USERS
+    # RESET USERS TABLE (fix chắc chắn)
+    cur.execute("DROP TABLE IF EXISTS users")
+
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS users(
+    CREATE TABLE users(
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT,
@@ -58,12 +59,6 @@ def startup():
     )
     """)
 
-    # Fix DB cũ
-    cur.execute("""
-    ALTER TABLE jig_comment 
-    ADD COLUMN IF NOT EXISTS user_name TEXT
-    """)
-
     conn.commit()
     cur.close()
     conn.close()
@@ -72,50 +67,38 @@ def startup():
 class UserCreate(BaseModel):
     username: str
     password: str
-    role: str  # admin / user
+    role: str
 
 @app.post("/create-user")
 def create_user(data: UserCreate):
-    conn = get_conn()
-    cur = conn.cursor()
     try:
+        conn = get_conn()
+        cur = conn.cursor()
+
         cur.execute("""
         INSERT INTO users(username,password,role)
         VALUES(%s,%s,%s)
-        """, (data.username, data.password, data.role))
+        """, (data.username.strip(), data.password.strip(), data.role))
+
         conn.commit()
-        return {"msg": "user created"}
-    except Exception as e:
-        conn.rollback()
-        return {"error": str(e)}
-    finally:
         cur.close()
         conn.close()
 
-@app.get("/debug-users")
-def debug_users():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT username,password,role FROM users")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+        return {"msg": "user created"}
+    except Exception as e:
+        return {"error": str(e)}
 
 def get_user_role(username):
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("SELECT role FROM users WHERE username=%s", (username,))
-        row = cur.fetchone()
-        return row[0] if row else None
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("SELECT role FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else "user"
 
 def require_admin(username):
-    role = get_user_role(username)
-    if role != "admin":
+    if get_user_role(username) != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
 # ================= LOGIN =================
@@ -132,25 +115,35 @@ def login():
 
 @app.post("/login")
 def login_post(username: str = Form(...), password: str = Form(...)):
+    username = username.strip()
+    password = password.strip()
+
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("SELECT password FROM users WHERE username=%s", (username,))
-        row = cur.fetchone()
+    cur.execute("SELECT password FROM users WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
 
-        if not row or row[0] != password:
-            return HTMLResponse("<h3>Login failed</h3>")
+    if not row:
+        return HTMLResponse("<h3>User NOT FOUND</h3>")
 
-        return RedirectResponse(f"/home?user={username}", status_code=302)
-    finally:
-        cur.close()
-        conn.close()
+    if row[0] != password:
+        return HTMLResponse("<h3>WRONG PASSWORD</h3>")
+
+    return RedirectResponse(f"/home?user={username}", status_code=302)
 
 @app.get("/home", response_class=HTMLResponse)
 def home(user: str):
+    role = get_user_role(user)
+
     with open("templates/index.html", encoding="utf-8") as f:
         html = f.read()
-    return html.replace("{{username}}", user)
+
+    html = html.replace("{{username}}", user)
+    html = html.replace("{{role}}", role)
+
+    return html
 
 # ================= JIG =================
 class Jig(BaseModel):
@@ -160,149 +153,84 @@ class Jig(BaseModel):
 @app.post("/add-jig")
 def add_jig(data: Jig, user: str):
     require_admin(user)
-
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("""
-        INSERT INTO jig_master(jig_name,image)
-        VALUES(%s,%s)
-        ON CONFLICT (jig_name) DO UPDATE SET image=%s
-        """, (data.jig_name, data.image, data.image))
-        conn.commit()
-        return {"msg": "ok"}
-    finally:
-        cur.close()
-        conn.close()
-
-@app.post("/delete-jig")
-def delete_jig(data: Jig, user: str):
-    require_admin(user)
-
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM jig_master WHERE jig_name=%s", (data.jig_name,))
-        conn.commit()
-        return {"msg": "ok"}
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("""
+    INSERT INTO jig_master(jig_name,image)
+    VALUES(%s,%s)
+    ON CONFLICT (jig_name) DO UPDATE SET image=%s
+    """, (data.jig_name, data.image, data.image))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"msg": "ok"}
 
 @app.get("/jigs")
 def get_jigs():
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("SELECT jig_name,image FROM jig_master ORDER BY jig_name")
-        rows = cur.fetchall()
-        return [{"name": r[0], "image": r[1]} for r in rows]
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("SELECT jig_name,image FROM jig_master ORDER BY jig_name")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"name": r[0], "image": r[1]} for r in rows]
 
 # ================= STATUS =================
 @app.get("/jig-status")
 def jig_status():
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("""
-        SELECT DISTINCT ON (jig_name) jig_name, status
-        FROM jig_log
-        ORDER BY jig_name, time DESC
-        """)
-        latest = dict(cur.fetchall())
 
-        cur.execute("SELECT jig_name FROM jig_master")
-        all_jigs = [r[0] for r in cur.fetchall()]
+    cur.execute("""
+    SELECT DISTINCT ON (jig_name) jig_name, status
+    FROM jig_log
+    ORDER BY jig_name, time DESC
+    """)
+    latest = dict(cur.fetchall())
 
-        result = {}
-        for j in all_jigs:
-            result[j] = latest.get(j, "FREE")
+    cur.execute("SELECT jig_name FROM jig_master")
+    all_jigs = [r[0] for r in cur.fetchall()]
 
-        return result
-    finally:
-        cur.close()
-        conn.close()
+    cur.close()
+    conn.close()
+
+    return {j: latest.get(j, "FREE") for j in all_jigs}
 
 # ================= BORROW =================
-class BorrowBatch(BaseModel):
-    jigs: list[str]
+class Borrow(BaseModel):
+    jig_name: str
     user: str
 
 @app.post("/borrow")
-def borrow(data: BorrowBatch):
+def borrow(data: Borrow):
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("""
-        SELECT DISTINCT ON (jig_name) jig_name, status
-        FROM jig_log
-        ORDER BY jig_name, time DESC
-        """)
-        latest = dict(cur.fetchall())
-
-        for jig in data.jigs:
-            if latest.get(jig) == "BORROW":
-                raise HTTPException(status_code=400, detail=f"{jig} already borrowed")
-
-        for jig in data.jigs:
-            cur.execute("""
-            INSERT INTO jig_log(jig_name,user_name,status)
-            VALUES(%s,%s,'BORROW')
-            """, (jig, data.user))
-
-        conn.commit()
-        return {"msg": "ok"}
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("""
+    INSERT INTO jig_log(jig_name,user_name,status)
+    VALUES(%s,%s,'BORROW')
+    """, (data.jig_name, data.user))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"msg": "ok"}
 
 # ================= RETURN =================
-class ReturnBatch(BaseModel):
-    jigs: list[str]
+class Return(BaseModel):
+    jig_name: str
     user: str
 
 @app.post("/return")
-def return_jig(data: ReturnBatch):
+def return_jig(data: Return):
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        for jig in data.jigs:
-            cur.execute("""
-            INSERT INTO jig_log(jig_name,user_name,status)
-            VALUES(%s,%s,'RETURN')
-            """, (jig, data.user))
-
-        conn.commit()
-        return {"msg": "ok"}
-    finally:
-        cur.close()
-        conn.close()
-
-# ================= LOG =================
-@app.get("/logs")
-def logs():
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-        SELECT jig_name,user_name,status,time
-        FROM jig_log
-        ORDER BY time DESC
-        """)
-        rows = cur.fetchall()
-
-        return [{
-            "jig_name": r[0],
-            "user": r[1],
-            "status": r[2],
-            "time": str(r[3])
-        } for r in rows]
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("""
+    INSERT INTO jig_log(jig_name,user_name,status)
+    VALUES(%s,%s,'RETURN')
+    """, (data.jig_name, data.user))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"msg": "ok"}
 
 # ================= COMMENT =================
 class Comment(BaseModel):
@@ -314,51 +242,33 @@ class Comment(BaseModel):
 def add_comment(data: Comment):
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        full = f"{data.text} (by {data.user})"
-        cur.execute("""
-        INSERT INTO jig_comment(jig_name,comment,user_name)
-        VALUES(%s,%s,%s)
-        """, (data.jig, full, data.user))
-        conn.commit()
-        return {"msg": "ok"}
-    finally:
-        cur.close()
-        conn.close()
+    full = f"{data.text} (by {data.user})"
+    cur.execute("""
+    INSERT INTO jig_comment(jig_name,comment,user_name)
+    VALUES(%s,%s,%s)
+    """, (data.jig, full, data.user))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"msg": "ok"}
 
 @app.get("/comments")
 def get_comments():
     conn = get_conn()
     cur = conn.cursor()
-    try:
-        cur.execute("""
-        SELECT id,jig_name,comment,user_name,time
-        FROM jig_comment
-        ORDER BY time DESC
-        """)
-        rows = cur.fetchall()
+    cur.execute("""
+    SELECT id,jig_name,comment,user_name,time
+    FROM jig_comment
+    ORDER BY time DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
 
-        return [{
-            "id": r[0],
-            "jig": r[1],
-            "text": r[2],
-            "user": r[3],
-            "time": str(r[4])
-        } for r in rows]
-    finally:
-        cur.close()
-        conn.close()
-
-@app.post("/delete-comment")
-def delete_comment(id: int = Form(...), user: str = Form(...)):
-    require_admin(user)
-
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM jig_comment WHERE id=%s", (id,))
-        conn.commit()
-        return {"msg": "deleted"}
-    finally:
-        cur.close()
-        conn.close()
+    return [{
+        "id": r[0],
+        "jig": r[1],
+        "text": r[2],
+        "user": r[3],
+        "time": str(r[4])
+    } for r in rows]
