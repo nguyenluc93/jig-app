@@ -79,7 +79,7 @@ margin-bottom:10px;
 <button onclick="show('comment')">コメント</button>
 
 <div class="menu-title">Admin</div>
-<button onclick="show('admin')">管理</button>
+<button id="adminBtn" onclick="show('admin')">管理</button>
 </div>
 
 <div class="content">
@@ -175,6 +175,13 @@ margin-bottom:10px;
 let user=new URLSearchParams(location.search).get("user")
 let selected=[]
 let statusData={}
+let scannerBorrow=null
+let scannerReturn=null
+
+// ===== ADMIN HIDE =====
+if(user !== "admin"){
+document.getElementById("adminBtn").style.display="none"
+}
 
 // NAV
 function show(id){
@@ -183,8 +190,7 @@ let el=document.getElementById(x)
 if(el) el.style.display="none"
 })
 
-let target=document.getElementById(id)
-if(target) target.style.display="block"
+document.getElementById(id).style.display="block"
 
 if(id==="logs") loadLogs()
 if(id==="admin") loadCommentAdmin()
@@ -209,11 +215,7 @@ loadDashboard()
 
 // INFO
 async function loadInfo(){
-try{
-let res=await fetch("/comments")
-if(!res.ok) return
-
-let data=await res.json()
+let data=await (await fetch("/comments")).json()
 let box=document.getElementById("infoBox")
 box.innerHTML=""
 
@@ -223,7 +225,6 @@ box.innerHTML+=`
 <b>${c.jig}</b> : ${c.text}
 </div>`
 })
-}catch(e){}
 }
 setInterval(loadInfo,3000)
 loadInfo()
@@ -277,47 +278,80 @@ document.getElementById("selectedList").innerHTML=selected.join("<br>")
 
 // SCAN BORROW
 function startScan(){
-const scanner=new Html5Qrcode("reader")
-scanner.start({facingMode:"environment"},{fps:10},(decoded)=>{
+if(scannerBorrow) scannerBorrow.stop()
+
+scannerBorrow=new Html5Qrcode("reader")
+scannerBorrow.start({facingMode:"environment"},{fps:10},(decoded)=>{
 selectJig(decoded)
 })
 }
 
-// BORROW
+// BORROW (BATCH)
 async function confirmBorrow(){
-for(let j of selected){
-await fetch("/borrow",{
+
+if(selected.length===0){
+alert("選択してください")
+return
+}
+
+let res=await fetch("/borrow",{
 method:"POST",
 headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:j,user:user})
+body:JSON.stringify({jigs:selected,user:user})
 })
+
+if(!res.ok){
+let err=await res.json()
+alert(err.detail)
+return
 }
 
 let url=location.origin+"/return-page?jigs="+selected.join(",")
 QRCode.toCanvas(document.getElementById("qr"),url)
 
 selected=[]
+document.getElementById("selectedList").innerHTML=""
 loadJigs()
 }
 
 // RETURN
 function startReturnScan(){
-const scanner=new Html5Qrcode("reader-return")
-scanner.start({facingMode:"environment"},{fps:10},async(decoded)=>{
+
+if(scannerReturn) scannerReturn.stop()
+
+scannerReturn=new Html5Qrcode("reader-return")
+
+scannerReturn.start({facingMode:"environment"},{fps:10},async(decoded)=>{
+
+if(decoded.includes("return-page")){
+let url=new URL(decoded)
+let jigs=url.searchParams.get("jigs").split(",")
+
 await fetch("/return",{
 method:"POST",
 headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig_name:decoded,user:user})
+body:JSON.stringify({jigs:jigs,user:user})
 })
+
+alert("一括返却")
+}else{
+
+await fetch("/return",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jigs:[decoded],user:user})
+})
+
 alert("返却: "+decoded)
+}
+
 loadJigs()
 })
 }
 
 // LOG
 async function loadLogs(){
-let res=await fetch("/logs")
-let data=await res.json()
+let data=await (await fetch("/logs")).json()
 
 let tb=document.getElementById("logTable")
 tb.innerHTML=""
@@ -341,7 +375,7 @@ let text=document.getElementById("cmtText").value
 await fetch("/comment",{
 method:"POST",
 headers:{'Content-Type':'application/json'},
-body:JSON.stringify({jig:jig,text:text})
+body:JSON.stringify({jig:jig,text:text,user:user})
 })
 
 alert("送信完了")

@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -10,6 +10,23 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # ================= DB =================
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
+
+# ================= SIMPLE AUTH =================
+# demo user (sau này thay bằng DB)
+USERS = {
+    "admin": {"password": "123", "role": "admin"},
+    "user": {"password": "123", "role": "user"},
+}
+
+def get_current_user(username: str = None):
+    if username not in USERS:
+        raise HTTPException(status_code=401, detail="Invalid user")
+    return {"username": username, "role": USERS[username]["role"]}
+
+def require_admin(user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
 
 # ================= LOGIN =================
 @app.get("/", response_class=HTMLResponse)
@@ -25,6 +42,10 @@ def login():
 
 @app.post("/login")
 def login_post(username: str = Form(...), password: str = Form(...)):
+    user = USERS.get(username)
+    if not user or user["password"] != password:
+        return HTMLResponse("<h3>Login failed</h3>")
+
     return RedirectResponse(f"/home?user={username}", status_code=302)
 
 @app.get("/home", response_class=HTMLResponse)
@@ -62,6 +83,7 @@ def startup():
         id SERIAL PRIMARY KEY,
         jig_name TEXT,
         comment TEXT,
+        user_name TEXT,
         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -76,7 +98,7 @@ class Jig(BaseModel):
     image: str
 
 @app.post("/add-jig")
-def add_jig(data: Jig):
+def add_jig(data: Jig, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -92,7 +114,7 @@ def add_jig(data: Jig):
         conn.close()
 
 @app.post("/delete-jig")
-def delete_jig(data: Jig):
+def delete_jig(data: Jig, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -115,44 +137,60 @@ def get_jigs():
         cur.close()
         conn.close()
 
-# ================= STATUS =================
+# ================= STATUS (OPTIMIZED) =================
 @app.get("/jig-status")
 def jig_status():
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute("""
-        SELECT j.jig_name,
-               (SELECT status FROM jig_log l 
-                WHERE l.jig_name=j.jig_name 
-                ORDER BY time DESC LIMIT 1)
-        FROM jig_master j
+        SELECT DISTINCT ON (jig_name) jig_name, status
+        FROM jig_log
+        ORDER BY jig_name, time DESC
         """)
-        rows = cur.fetchall()
+        latest = dict(cur.fetchall())
+
+        cur.execute("SELECT jig_name FROM jig_master")
+        all_jigs = [r[0] for r in cur.fetchall()]
 
         result = {}
-        for r in rows:
-            result[r[0]] = r[1] if r[1] else "FREE"
+        for j in all_jigs:
+            result[j] = latest.get(j, "FREE")
 
         return result
     finally:
         cur.close()
         conn.close()
 
-# ================= BORROW =================
-class Borrow(BaseModel):
-    jig_name: str
+# ================= BORROW (BATCH + LOCK) =================
+class BorrowBatch(BaseModel):
+    jigs: list[str]
     user: str
 
 @app.post("/borrow")
-def borrow(data: Borrow):
+def borrow(data: BorrowBatch):
     conn = get_conn()
     cur = conn.cursor()
     try:
+        # check status trước
         cur.execute("""
-        INSERT INTO jig_log(jig_name,user_name,status)
-        VALUES(%s,%s,'BORROW')
-        """, (data.jig_name, data.user))
+        SELECT DISTINCT ON (jig_name) jig_name, status
+        FROM jig_log
+        ORDER BY jig_name, time DESC
+        """)
+        latest = dict(cur.fetchall())
+
+        for jig in data.jigs:
+            if latest.get(jig) == "BORROW":
+                raise HTTPException(status_code=400, detail=f"{jig} already borrowed")
+
+        # insert batch
+        for jig in data.jigs:
+            cur.execute("""
+            INSERT INTO jig_log(jig_name,user_name,status)
+            VALUES(%s,%s,'BORROW')
+            """, (jig, data.user))
+
         conn.commit()
         return {"msg": "ok"}
     finally:
@@ -160,19 +198,21 @@ def borrow(data: Borrow):
         conn.close()
 
 # ================= RETURN =================
-class Return(BaseModel):
-    jig_name: str
+class ReturnBatch(BaseModel):
+    jigs: list[str]
     user: str
 
 @app.post("/return")
-def return_jig(data: Return):
+def return_jig(data: ReturnBatch):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute("""
-        INSERT INTO jig_log(jig_name,user_name,status)
-        VALUES(%s,%s,'RETURN')
-        """, (data.jig_name, data.user))
+        for jig in data.jigs:
+            cur.execute("""
+            INSERT INTO jig_log(jig_name,user_name,status)
+            VALUES(%s,%s,'RETURN')
+            """, (jig, data.user))
+
         conn.commit()
         return {"msg": "ok"}
     finally:
@@ -206,21 +246,22 @@ def logs():
 class Comment(BaseModel):
     jig: str
     text: str
+    user: str
 
 @app.post("/comment")
 def add_comment(data: Comment):
     conn = get_conn()
     cur = conn.cursor()
     try:
+        full_text = f"{data.text} (by {data.user})"
+
         cur.execute("""
-        INSERT INTO jig_comment(jig_name,comment)
-        VALUES(%s,%s)
-        """, (data.jig, data.text))
+        INSERT INTO jig_comment(jig_name,comment,user_name)
+        VALUES(%s,%s,%s)
+        """, (data.jig, full_text, data.user))
+
         conn.commit()
         return {"msg": "ok"}
-    except Exception as e:
-        conn.rollback()
-        return {"msg": "error", "detail": str(e)}
     finally:
         cur.close()
         conn.close()
@@ -231,7 +272,7 @@ def get_comments():
     cur = conn.cursor()
     try:
         cur.execute("""
-        SELECT id,jig_name,comment,time
+        SELECT id,jig_name,comment,user_name,time
         FROM jig_comment
         ORDER BY time DESC
         """)
@@ -241,14 +282,15 @@ def get_comments():
             "id": r[0],
             "jig": r[1],
             "text": r[2],
-            "time": str(r[3])
+            "user": r[3],
+            "time": str(r[4])
         } for r in rows]
     finally:
         cur.close()
         conn.close()
 
 @app.post("/delete-comment")
-def delete_comment(id: int = Form(...)):
+def delete_comment(id: int = Form(...), user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     try:
