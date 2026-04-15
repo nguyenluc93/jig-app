@@ -1,16 +1,21 @@
 import os
 import psycopg2
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# ================= DB =================
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
-# ================= INIT DB (SAFE - NO DROP) =================
+# ================= SAFE RESPONSE WRAPPER =================
+def safe_json(data=None):
+    return JSONResponse(content={"ok": True, "data": data or []})
+
+# ================= INIT DB =================
 @app.on_event("startup")
 def startup():
     conn = get_conn()
@@ -57,17 +62,18 @@ def startup():
     cur.close()
     conn.close()
 
-# ================= USER =================
-class UserCreate(BaseModel):
+# ================= USERS =================
+class User(BaseModel):
     username: str
     password: str
     role: str = "user"
 
 @app.post("/create-user")
-def create_user(data: UserCreate):
-    conn = get_conn()
-    cur = conn.cursor()
+def create_user(data: User):
     try:
+        conn = get_conn()
+        cur = conn.cursor()
+
         cur.execute("""
         INSERT INTO users(username,password,role)
         VALUES(%s,%s,%s)
@@ -77,29 +83,33 @@ def create_user(data: UserCreate):
         """, (data.username, data.password, data.role))
 
         conn.commit()
-        return {"msg": "ok"}
-    finally:
         cur.close()
         conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
-def get_user_role(username):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT role FROM users WHERE username=%s", (username,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row[0] if row else "user"
+def get_role(username):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT role FROM users WHERE username=%s", (username,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row[0] if row else "user"
+    except:
+        return "user"
 
 # ================= LOGIN =================
 @app.get("/", response_class=HTMLResponse)
 def login():
     return """
-    <h2>ログイン</h2>
+    <h2>LOGIN</h2>
     <form action="/login" method="post">
-    <input name="username" placeholder="ユーザー名">
-    <input name="password" type="password" placeholder="パスワード">
-    <button>ログイン</button>
+        <input name="username" placeholder="user">
+        <input name="password" type="password" placeholder="pass">
+        <button>login</button>
     </form>
     """
 
@@ -113,13 +123,13 @@ def login_post(username: str = Form(...), password: str = Form(...)):
     conn.close()
 
     if not row or row[0] != password:
-        return HTMLResponse("<h3>LOGIN FAILED</h3>")
+        return HTMLResponse("LOGIN FAIL")
 
     return RedirectResponse(f"/home?user={username}", status_code=302)
 
 @app.get("/home", response_class=HTMLResponse)
 def home(user: str):
-    role = get_user_role(user)
+    role = get_role(user)
 
     with open("templates/index.html", encoding="utf-8") as f:
         html = f.read()
@@ -136,47 +146,61 @@ class Jig(BaseModel):
 
 @app.post("/add-jig")
 def add_jig(data: Jig):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    INSERT INTO jig_master(jig_name,image)
-    VALUES(%s,%s)
-    ON CONFLICT (jig_name) DO UPDATE SET image=%s
-    """, (data.jig_name, data.image, data.image))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"msg": "ok"}
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+        INSERT INTO jig_master(jig_name,image)
+        VALUES(%s,%s)
+        ON CONFLICT (jig_name) DO UPDATE SET image=%s
+        """, (data.jig_name, data.image, data.image))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/jigs")
 def get_jigs():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT jig_name,image FROM jig_master ORDER BY jig_name")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [{"name": r[0], "image": r[1]} for r in rows]
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT jig_name,image FROM jig_master ORDER BY jig_name")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return safe_json([{"name": r[0], "image": r[1]} for r in rows])
+    except:
+        return safe_json([])
 
 # ================= STATUS =================
 @app.get("/jig-status")
 def jig_status():
-    conn = get_conn()
-    cur = conn.cursor()
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-    cur.execute("""
-    SELECT jig_name,
-           (SELECT status FROM jig_log l
-            WHERE l.jig_name = jig_master.jig_name
-            ORDER BY time DESC LIMIT 1)
-    FROM jig_master
-    """)
+        cur.execute("""
+        SELECT jig_name,
+               (SELECT status FROM jig_log l
+                WHERE l.jig_name=jig_master.jig_name
+                ORDER BY time DESC LIMIT 1)
+        FROM jig_master
+        """)
 
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
 
-    return {r[0]: (r[1] if r[1] else "FREE") for r in rows}
+        result = {r[0]: (r[1] if r[1] else "FREE") for r in rows}
+        return safe_json(result)
+
+    except:
+        return safe_json({})
 
 # ================= BORROW / RETURN =================
 class Action(BaseModel):
@@ -187,29 +211,33 @@ class Action(BaseModel):
 def borrow(data: Action):
     conn = get_conn()
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO jig_log(jig_name,user_name,status)
     VALUES(%s,%s,'BORROW')
     """, (data.jig_name, data.user))
+
     conn.commit()
     cur.close()
     conn.close()
-    return {"msg": "ok"}
+    return {"ok": True}
 
 @app.post("/return")
 def return_jig(data: Action):
     conn = get_conn()
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO jig_log(jig_name,user_name,status)
     VALUES(%s,%s,'RETURN')
     """, (data.jig_name, data.user))
+
     conn.commit()
     cur.close()
     conn.close()
-    return {"msg": "ok"}
+    return {"ok": True}
 
-# ================= COMMENT =================
+# ================= COMMENTS =================
 class Comment(BaseModel):
     jig: str
     text: str
@@ -218,53 +246,67 @@ class Comment(BaseModel):
 def add_comment(data: Comment):
     conn = get_conn()
     cur = conn.cursor()
+
     cur.execute("""
     INSERT INTO jig_comment(jig_name,comment,user_name)
     VALUES(%s,%s,%s)
     """, (data.jig, data.text, "system"))
+
     conn.commit()
     cur.close()
     conn.close()
-    return {"msg": "ok"}
+    return {"ok": True}
 
 @app.get("/comments")
 def get_comments():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    SELECT id,jig_name,comment,user_name,time
-    FROM jig_comment
-    ORDER BY time DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-    return [{
-        "id": r[0],
-        "jig": r[1],
-        "text": r[2],
-        "user": r[3],
-        "time": str(r[4])
-    } for r in rows]
+        cur.execute("""
+        SELECT id,jig_name,comment,user_name,time
+        FROM jig_comment
+        ORDER BY time DESC
+        """)
 
-# ================= LOG =================
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return safe_json([{
+            "id": r[0],
+            "jig": r[1],
+            "text": r[2],
+            "user": r[3],
+            "time": str(r[4])
+        } for r in rows])
+
+    except:
+        return safe_json([])
+
+# ================= LOGS =================
 @app.get("/logs")
 def logs():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    SELECT jig_name,user_name,status,time
-    FROM jig_log
-    ORDER BY time DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-    return [{
-        "jig_name": r[0],
-        "user": r[1],
-        "status": r[2],
-        "time": str(r[3])
-    } for r in rows]
+        cur.execute("""
+        SELECT jig_name,user_name,status,time
+        FROM jig_log
+        ORDER BY time DESC
+        """)
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return safe_json([{
+            "jig_name": r[0],
+            "user": r[1],
+            "status": r[2],
+            "time": str(r[3])
+        } for r in rows])
+
+    except:
+        return safe_json([])
