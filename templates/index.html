@@ -12,9 +12,7 @@ body{margin:0;display:flex;font-family:Arial}
 
 /* SIDEBAR */
 .sidebar{
-width:250px;
-background:linear-gradient(180deg,#2f3542,#1e272e);
-color:white;padding:15px;height:100vh;
+width:250px;background:#2f3542;color:white;padding:15px;height:100vh;
 }
 
 .menu-title{margin-top:15px;font-weight:bold;}
@@ -22,56 +20,29 @@ color:white;padding:15px;height:100vh;
 .sidebar button{
 width:100%;margin:5px 0;padding:10px;background:#57606f;color:white;
 border:none;border-radius:5px;text-align:left;cursor:pointer;
-transition:0.2s;
 }
 
-.sidebar button:hover{
-background:#747d8c;
-transform:scale(1.05);
-}
+.sidebar button:hover{background:#747d8c}
 
 /* CONTENT */
 .content{flex:1;padding:20px;background:#f1f2f6;}
 
 /* CARD */
-.card{
-background:white;
-padding:15px;
-margin-bottom:15px;
-border-radius:12px;
-box-shadow:0 4px 12px rgba(0,0,0,0.1);
-}
+.card{background:white;padding:15px;margin-bottom:15px;border-radius:10px;}
 
 /* DASHBOARD */
 .dashboard{display:flex;gap:15px;margin-top:15px;}
-.dcard{
-flex:1;padding:20px;border-radius:10px;color:white;text-align:center;
-transition:0.3s;
-}
-.dcard:hover{transform:translateY(-5px);}
-
+.dcard{flex:1;padding:20px;border-radius:10px;color:white;text-align:center;}
 .total{background:#1e90ff}
 .borrow{background:#ff4757}
 .free{background:#2ed573}
 
 /* TABLE */
-table{
-width:100%;
-border-collapse:collapse;
-background:white;
-border-radius:10px;
-overflow:hidden;
-}
-th{
-background:#2f3542;
-color:white;
-}
-td{
-border:1px solid #ccc;padding:8px;text-align:center;
-}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #ccc;padding:8px;text-align:center}
 
 /* STATUS */
-.selected-row{background:#2ed573;color:white;font-weight:bold}
+.selected-row{background:#2ed573;color:white}
 .borrowed-row{background:#ff6b6b;color:white}
 .disabled-btn{background:#aaa !important;cursor:not-allowed}
 
@@ -107,15 +78,13 @@ margin-bottom:10px;
 <button onclick="show('logs')">ログ</button>
 <button onclick="show('comment')">コメント</button>
 
-<div id="adminMenu">
 <div class="menu-title">Admin</div>
 <button onclick="show('admin')">管理</button>
 </div>
 
-</div>
-
 <div class="content">
 
+<!-- HOME -->
 <div id="home" class="card">
 <h2>{{username}} さん</h2>
 
@@ -127,21 +96,298 @@ margin-bottom:10px;
 
 <h3>Information</h3>
 <div id="infoBox"></div>
+
 </div>
 
-<!-- giữ nguyên phần còn lại của bạn -->
+<!-- BORROW -->
+<div id="borrow" class="card" style="display:none">
+<h3>JIG貸出</h3>
+
+<button onclick="startScan()">Scan</button>
+<div id="reader"></div>
+
+<table>
+<tr><th>JIG</th><th>画像</th><th>操作</th></tr>
+<tbody id="tb"></tbody>
+</table>
+
+<h4>選択中:</h4>
+<div id="selectedList"></div>
+
+<button onclick="confirmBorrow()">確定</button>
+
+<h4>QRコード</h4>
+<canvas id="qr"></canvas>
+</div>
+
+<!-- RETURN -->
+<div id="return" class="card" style="display:none">
+<h3>返却</h3>
+<button onclick="startReturnScan()">Scan Return</button>
+<div id="reader-return"></div>
+</div>
+
+<!-- LOG -->
+<div id="logs" class="card" style="display:none">
+<h3>履歴ログ</h3>
+
+<table>
+<tr>
+<th>JIG</th>
+<th>ユーザー</th>
+<th>状態</th>
+<th>時間</th>
+</tr>
+<tbody id="logTable"></tbody>
+</table>
+
+</div>
+
+<!-- COMMENT -->
+<div id="comment" class="card" style="display:none">
+<h3>コメント</h3>
+
+<input id="cmtJig" placeholder="対象JIG">
+<textarea id="cmtText" placeholder="コメント入力"></textarea>
+
+<button onclick="sendComment()">送信</button>
+</div>
+
+<!-- ADMIN -->
+<div id="admin" class="card" style="display:none">
+<h3>JIG管理</h3>
+
+<input id="name" placeholder="JIG名">
+<input id="img" placeholder="画像URL">
+<button onclick="addJig()">追加</button>
+
+<hr>
+
+<h4>コメント管理</h4>
+<div id="commentAdmin"></div>
+
+</div>
 
 </div>
 
 <script>
-let user=new URLSearchParams(location.search).get("user")
-let role="{{role}}"
 
-// 🔥 ẨN ADMIN
-if(role !== "admin"){
-    let adminMenu=document.getElementById("adminMenu")
-    if(adminMenu) adminMenu.style.display="none"
+let user=new URLSearchParams(location.search).get("user")
+let selected=[]
+let statusData={}
+
+// NAV
+function show(id){
+["home","borrow","return","logs","comment","admin"].forEach(x=>{
+let el=document.getElementById(x)
+if(el) el.style.display="none"
+})
+
+let target=document.getElementById(id)
+if(target) target.style.display="block"
+
+if(id==="logs") loadLogs()
+if(id==="admin") loadCommentAdmin()
 }
+
+// DASHBOARD
+async function loadDashboard(){
+let jigs=await (await fetch("/jigs")).json()
+statusData=await (await fetch("/jig-status")).json()
+
+let using=0
+jigs.forEach(j=>{
+if(statusData[j.name]=="BORROW") using++
+})
+
+document.getElementById("total").innerText=jigs.length
+document.getElementById("using").innerText=using
+document.getElementById("free").innerText=jigs.length-using
+}
+setInterval(loadDashboard,3000)
+loadDashboard()
+
+// INFO
+async function loadInfo(){
+try{
+let res=await fetch("/comments")
+if(!res.ok) return
+
+let data=await res.json()
+let box=document.getElementById("infoBox")
+box.innerHTML=""
+
+data.forEach(c=>{
+box.innerHTML+=`
+<div style="background:#fff3cd;padding:8px;margin:5px;border-radius:5px">
+<b>${c.jig}</b> : ${c.text}
+</div>`
+})
+}catch(e){}
+}
+setInterval(loadInfo,3000)
+loadInfo()
+
+// LOAD JIG
+async function loadJigs(){
+let data=await (await fetch("/jigs")).json()
+statusData=await (await fetch("/jig-status")).json()
+
+let tb=document.getElementById("tb")
+tb.innerHTML=""
+
+data.forEach(j=>{
+let isBorrowed=statusData[j.name]=="BORROW"
+
+let tr=document.createElement("tr")
+tr.id="row-"+j.name
+
+if(isBorrowed) tr.classList.add("borrowed-row")
+
+tr.innerHTML=`
+<td>${j.name}</td>
+<td><img src="${j.image}" width="80"></td>
+<td>
+<button onclick="selectJig('${j.name}')" 
+${isBorrowed?"disabled class='disabled-btn'":""}>
+選択
+</button>
+</td>
+`
+tb.appendChild(tr)
+})
+}
+
+// SELECT
+function selectJig(j){
+if(statusData[j]=="BORROW") return
+
+let row=document.getElementById("row-"+j)
+
+if(selected.includes(j)){
+selected=selected.filter(x=>x!==j)
+row.classList.remove("selected-row")
+}else{
+selected.push(j)
+row.classList.add("selected-row")
+}
+
+document.getElementById("selectedList").innerHTML=selected.join("<br>")
+}
+
+// SCAN BORROW
+function startScan(){
+const scanner=new Html5Qrcode("reader")
+scanner.start({facingMode:"environment"},{fps:10},(decoded)=>{
+selectJig(decoded)
+})
+}
+
+// BORROW
+async function confirmBorrow(){
+for(let j of selected){
+await fetch("/borrow",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:j,user:user})
+})
+}
+
+let url=location.origin+"/return-page?jigs="+selected.join(",")
+QRCode.toCanvas(document.getElementById("qr"),url)
+
+selected=[]
+loadJigs()
+}
+
+// RETURN
+function startReturnScan(){
+const scanner=new Html5Qrcode("reader-return")
+scanner.start({facingMode:"environment"},{fps:10},async(decoded)=>{
+await fetch("/return",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:decoded,user:user})
+})
+alert("返却: "+decoded)
+loadJigs()
+})
+}
+
+// LOG
+async function loadLogs(){
+let res=await fetch("/logs")
+let data=await res.json()
+
+let tb=document.getElementById("logTable")
+tb.innerHTML=""
+
+data.forEach(l=>{
+tb.innerHTML+=`
+<tr>
+<td>${l.jig_name}</td>
+<td>${l.user}</td>
+<td>${l.status}</td>
+<td>${l.time}</td>
+</tr>`
+})
+}
+
+// COMMENT
+async function sendComment(){
+let jig=document.getElementById("cmtJig").value
+let text=document.getElementById("cmtText").value
+
+await fetch("/comment",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig:jig,text:text})
+})
+
+alert("送信完了")
+document.getElementById("cmtText").value=""
+loadInfo()
+}
+
+// ADMIN COMMENT
+async function loadCommentAdmin(){
+let data=await (await fetch("/comments")).json()
+let box=document.getElementById("commentAdmin")
+box.innerHTML=""
+
+data.forEach(c=>{
+box.innerHTML+=`
+<div>
+${c.jig} - ${c.text}
+<button onclick="delComment(${c.id})">削除</button>
+</div>`
+})
+}
+
+async function delComment(id){
+let form=new FormData()
+form.append("id",id)
+
+await fetch("/delete-comment",{method:"POST",body:form})
+loadCommentAdmin()
+}
+
+// ADMIN JIG
+async function addJig(){
+let name=document.getElementById("name").value
+let img=document.getElementById("img").value
+
+await fetch("/add-jig",{
+method:"POST",
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jig_name:name,image:img})
+})
+
+loadJigs()
+}
+
+loadJigs()
+
 </script>
 
 </body>
