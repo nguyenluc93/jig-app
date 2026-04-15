@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from fastapi import FastAPI, Form, HTTPException, Depends
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -11,22 +11,102 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
-# ================= SIMPLE AUTH =================
-# demo user (sau này thay bằng DB)
-USERS = {
-    "admin": {"password": "123", "role": "admin"},
-    "user": {"password": "123", "role": "user"},
-}
+# ================= INIT DB =================
+@app.on_event("startup")
+def startup():
+    conn = get_conn()
+    cur = conn.cursor()
 
-def get_current_user(username: str = None):
-    if username not in USERS:
-        raise HTTPException(status_code=401, detail="Invalid user")
-    return {"username": username, "role": USERS[username]["role"]}
+    # USERS
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        password TEXT,
+        role TEXT
+    )
+    """)
 
-def require_admin(user=Depends(get_current_user)):
-    if user["role"] != "admin":
+    # JIG MASTER
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS jig_master(
+        id SERIAL PRIMARY KEY,
+        jig_name TEXT UNIQUE,
+        image TEXT
+    )
+    """)
+
+    # LOG
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS jig_log(
+        id SERIAL PRIMARY KEY,
+        jig_name TEXT,
+        user_name TEXT,
+        status TEXT,
+        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # COMMENT
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS jig_comment(
+        id SERIAL PRIMARY KEY,
+        jig_name TEXT,
+        comment TEXT,
+        user_name TEXT,
+        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # FIX DB CŨ (nếu có)
+    cur.execute("""
+    ALTER TABLE jig_comment 
+    ADD COLUMN IF NOT EXISTS user_name TEXT
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ================= USER =================
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str  # admin / user
+
+@app.post("/create-user")
+def create_user(data: UserCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        INSERT INTO users(username,password,role)
+        VALUES(%s,%s,%s)
+        """, (data.username, data.password, data.role))
+        conn.commit()
+        return {"msg": "user created"}
+    except Exception as e:
+        conn.rollback()
+        return {"error": str(e)}
+    finally:
+        cur.close()
+        conn.close()
+
+def get_user_role(username):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT role FROM users WHERE username=%s", (username,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        cur.close()
+        conn.close()
+
+def require_admin(username):
+    role = get_user_role(username)
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    return user
 
 # ================= LOGIN =================
 @app.get("/", response_class=HTMLResponse)
@@ -42,11 +122,19 @@ def login():
 
 @app.post("/login")
 def login_post(username: str = Form(...), password: str = Form(...)):
-    user = USERS.get(username)
-    if not user or user["password"] != password:
-        return HTMLResponse("<h3>Login failed</h3>")
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT password FROM users WHERE username=%s", (username,))
+        row = cur.fetchone()
 
-    return RedirectResponse(f"/home?user={username}", status_code=302)
+        if not row or row[0] != password:
+            return HTMLResponse("<h3>Login failed</h3>")
+
+        return RedirectResponse(f"/home?user={username}", status_code=302)
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/home", response_class=HTMLResponse)
 def home(user: str):
@@ -54,51 +142,15 @@ def home(user: str):
         html = f.read()
     return html.replace("{{username}}", user)
 
-# ================= INIT DB =================
-@app.on_event("startup")
-def startup():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS jig_master(
-        id SERIAL PRIMARY KEY,
-        jig_name TEXT UNIQUE,
-        image TEXT
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS jig_log(
-        id SERIAL PRIMARY KEY,
-        jig_name TEXT,
-        user_name TEXT,
-        status TEXT,
-        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS jig_comment(
-        id SERIAL PRIMARY KEY,
-        jig_name TEXT,
-        comment TEXT,
-        user_name TEXT,
-        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
 # ================= JIG =================
 class Jig(BaseModel):
     jig_name: str
     image: str
 
 @app.post("/add-jig")
-def add_jig(data: Jig, user=Depends(require_admin)):
+def add_jig(data: Jig, user: str):
+    require_admin(user)
+
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -114,7 +166,9 @@ def add_jig(data: Jig, user=Depends(require_admin)):
         conn.close()
 
 @app.post("/delete-jig")
-def delete_jig(data: Jig, user=Depends(require_admin)):
+def delete_jig(data: Jig, user: str):
+    require_admin(user)
+
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -137,7 +191,7 @@ def get_jigs():
         cur.close()
         conn.close()
 
-# ================= STATUS (OPTIMIZED) =================
+# ================= STATUS =================
 @app.get("/jig-status")
 def jig_status():
     conn = get_conn()
@@ -162,7 +216,7 @@ def jig_status():
         cur.close()
         conn.close()
 
-# ================= BORROW (BATCH + LOCK) =================
+# ================= BORROW =================
 class BorrowBatch(BaseModel):
     jigs: list[str]
     user: str
@@ -172,7 +226,6 @@ def borrow(data: BorrowBatch):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        # check status trước
         cur.execute("""
         SELECT DISTINCT ON (jig_name) jig_name, status
         FROM jig_log
@@ -184,7 +237,6 @@ def borrow(data: BorrowBatch):
             if latest.get(jig) == "BORROW":
                 raise HTTPException(status_code=400, detail=f"{jig} already borrowed")
 
-        # insert batch
         for jig in data.jigs:
             cur.execute("""
             INSERT INTO jig_log(jig_name,user_name,status)
@@ -253,13 +305,11 @@ def add_comment(data: Comment):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        full_text = f"{data.text} (by {data.user})"
-
+        full = f"{data.text} (by {data.user})"
         cur.execute("""
         INSERT INTO jig_comment(jig_name,comment,user_name)
         VALUES(%s,%s,%s)
-        """, (data.jig, full_text, data.user))
-
+        """, (data.jig, full, data.user))
         conn.commit()
         return {"msg": "ok"}
     finally:
@@ -290,7 +340,9 @@ def get_comments():
         conn.close()
 
 @app.post("/delete-comment")
-def delete_comment(id: int = Form(...), user=Depends(require_admin)):
+def delete_comment(id: int = Form(...), user: str = Form(...)):
+    require_admin(user)
+
     conn = get_conn()
     cur = conn.cursor()
     try:
