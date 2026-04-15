@@ -1,158 +1,65 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>JIG管理システム</title>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode"></script>
-
-<style>
-body{margin:0;display:flex;font-family:Arial}
-
-/* SIDEBAR (KHÔNG ĐỔI STRUCTURE) */
-.sidebar{
-width:250px;
-background:linear-gradient(180deg,#2f3542,#1e272e);
-color:white;
-padding:15px;
-height:100vh;
-}
-
-.menu-title{margin-top:15px;font-weight:bold;}
-
-.sidebar button{
-width:100%;
-margin:5px 0;
-padding:10px;
-background:#57606f;
-color:white;
-border:none;
-border-radius:5px;
-text-align:left;
-cursor:pointer;
-transition:0.2s;
-}
-
-.sidebar button:hover{
-background:#747d8c;
-transform:scale(1.03);
-}
-
-/* CONTENT */
-.content{flex:1;padding:20px;background:#f1f2f6;}
-
-/* CARD */
-.card{
-background:white;
-padding:15px;
-margin-bottom:15px;
-border-radius:12px;
-box-shadow:0 4px 12px rgba(0,0,0,0.1);
-}
-
-/* DASHBOARD */
-.dashboard{display:flex;gap:15px;margin-top:15px;}
-.dcard{
-flex:1;
-padding:20px;
-border-radius:10px;
-color:white;
-text-align:center;
-transition:0.3s;
-}
-.dcard:hover{transform:translateY(-5px);}
-
-.total{background:#1e90ff}
-.borrow{background:#ff4757}
-.free{background:#2ed573}
-
-/* TABLE */
-table{
-width:100%;
-border-collapse:collapse;
-background:white;
-border-radius:10px;
-overflow:hidden;
-}
-th{
-background:#2f3542;
-color:white;
-}
-td{
-padding:8px;
-text-align:center;
-border:1px solid #ccc;
-}
-
-/* STATUS */
-.selected-row{background:#2ed573;color:white;font-weight:bold}
-.borrowed-row{background:#ff6b6b;color:white}
-
-/* COMMENT */
-textarea{
-width:100%;
-height:300px;
-padding:10px;
-}
-
-input{
-width:100%;
-padding:10px;
-margin-bottom:10px;
-}
-</style>
-</head>
-
-<body>
-
-<div class="sidebar">
-<h2>JIGシステム</h2>
-
-<div class="menu-title">Dashboard</div>
-<button onclick="show('home')">ホーム</button>
-<button onclick="show('borrow')">貸出</button>
-<button onclick="show('return')">返却</button>
-
-<div class="menu-title">Monitor</div>
-<button onclick="show('logs')">ログ</button>
-<button onclick="show('comment')">コメント</button>
-
-<div id="adminMenu">
-<div class="menu-title">Admin</div>
-<button onclick="show('admin')">管理</button>
-</div>
-
-</div>
-
-<div class="content">
-
-<div id="home" class="card">
-<h2>{{username}} さん</h2>
-
-<div class="dashboard">
-<div class="dcard total">総数<br><span id="total">0</span></div>
-<div class="dcard borrow">使用中<br><span id="using">0</span></div>
-<div class="dcard free">空き<br><span id="free">0</span></div>
-</div>
-
-<h3>Information</h3>
-<div id="infoBox"></div>
-</div>
-
-<!-- các tab bạn giữ nguyên như hiện tại -->
-</div>
-
 <script>
-let user = new URLSearchParams(location.search).get("user")
-let role = "{{role}}"
+let user=new URLSearchParams(location.search).get("user")
+let role="{{role}}"
+let selected=[]
+let statusData={}
 
-/* 🔥 ROLE CONTROL */
-if(role !== "admin"){
-    let adminMenu = document.getElementById("adminMenu")
-    if(adminMenu) adminMenu.style.display = "none"
+// 🔥 FIX ADMIN MENU
+window.onload = () => {
+    if(role !== "admin"){
+        let adminMenu = document.getElementById("adminMenu")
+        if(adminMenu) adminMenu.style.display="none"
+    }
+
+    show('home')
+    loadDashboard()
+    loadInfo()
 }
-</script>
 
-</body>
-</html>
+// 🔥 TAB SWITCH FIX
+function show(id){
+    let tabs=["home","borrow","return","logs","comment","admin"]
+
+    tabs.forEach(t=>{
+        let el=document.getElementById(t)
+        if(el) el.style.display="none"
+    })
+
+    let target=document.getElementById(id)
+    if(target) target.style.display="block"
+
+    if(id==="logs") loadLogs()
+    if(id==="borrow") loadJigs()
+}
+
+// 🔥 DASHBOARD FIX (JIG COUNT)
+async function loadDashboard(){
+    let jigs = await (await fetch("/jigs")).json()
+    statusData = await (await fetch("/jig-status")).json()
+
+    let using=0
+    jigs.forEach(j=>{
+        if(statusData[j.name]==="BORROW") using++
+    })
+
+    document.getElementById("total").innerText=jigs.length
+    document.getElementById("using").innerText=using
+    document.getElementById("free").innerText=jigs.length-using
+}
+
+// INFO
+async function loadInfo(){
+    let data = await (await fetch("/comments")).json()
+    let box=document.getElementById("infoBox")
+    box.innerHTML=""
+
+    data.forEach(c=>{
+        box.innerHTML+=`
+        <div style="padding:5px;background:#fff3cd;margin:5px">
+        <b>${c.jig}</b> : ${c.text}
+        </div>`
+    })
+}
+setInterval(loadDashboard,5000)
+setInterval(loadInfo,5000)
+</script>
