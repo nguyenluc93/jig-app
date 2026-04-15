@@ -58,7 +58,7 @@ def startup():
     )
     """)
 
-    # FIX DB CŨ (nếu có)
+    # Fix DB cũ
     cur.execute("""
     ALTER TABLE jig_comment 
     ADD COLUMN IF NOT EXISTS user_name TEXT
